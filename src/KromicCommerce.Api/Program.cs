@@ -70,8 +70,7 @@ try
     // -----------------------------------------------------------------------
     app.UseMiddleware<GlobalExceptionMiddleware>();
 
-    if (app.Environment.IsDevelopment())
-        app.UseSwaggerWithVersioning();
+    app.UseSwaggerWithVersioning();
 
     app.UseHttpsRedirection();
     app.UseCors(CorsOptions.PolicyName);
