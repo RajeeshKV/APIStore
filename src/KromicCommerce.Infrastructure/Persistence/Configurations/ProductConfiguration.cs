@@ -28,7 +28,7 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
 
         builder.HasIndex(p => p.Slug).IsUnique().HasDatabaseName("ix_products_slug");
         builder.HasIndex(p => p.Sku)
-            .IsUnique().HasFilter("sku IS NOT NULL").HasDatabaseName("ix_products_sku");
+            .IsUnique().HasFilter("\"Sku\" IS NOT NULL").HasDatabaseName("ix_products_sku");
         builder.HasIndex(p => p.Status).HasDatabaseName("ix_products_status");
         builder.HasIndex(p => p.CategoryId).HasDatabaseName("ix_products_category");
         builder.HasIndex(p => p.BrandId).HasDatabaseName("ix_products_brand");

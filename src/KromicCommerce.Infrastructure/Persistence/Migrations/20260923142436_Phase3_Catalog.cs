@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -282,7 +282,7 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                 table: "product_variants",
                 column: "Sku",
                 unique: true,
-                filter: "sku IS NOT NULL");
+                filter: "\"Sku\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "ix_products_brand",
@@ -299,7 +299,7 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                 table: "products",
                 column: "Sku",
                 unique: true,
-                filter: "sku IS NOT NULL");
+                filter: "\"Sku\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "ix_products_slug",

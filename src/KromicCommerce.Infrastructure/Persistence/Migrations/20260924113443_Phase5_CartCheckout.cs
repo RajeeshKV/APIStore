@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -195,13 +195,13 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                 name: "ix_carts_anonymous",
                 table: "carts",
                 column: "AnonymousId",
-                filter: "anonymous_id IS NOT NULL");
+                filter: "\"AnonymousId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "ix_carts_customer",
                 table: "carts",
                 column: "CustomerId",
-                filter: "customer_id IS NOT NULL");
+                filter: "\"CustomerId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "ix_order_items_order",
@@ -250,13 +250,13 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                 name: "ix_payments_provider_order",
                 table: "payments",
                 column: "ProviderOrderId",
-                filter: "provider_order_id IS NOT NULL");
+                filter: "\"ProviderOrderId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "ix_payments_provider_payment",
                 table: "payments",
                 column: "ProviderPaymentId",
-                filter: "provider_payment_id IS NOT NULL");
+                filter: "\"ProviderPaymentId\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "ix_webhook_events_provider_event",

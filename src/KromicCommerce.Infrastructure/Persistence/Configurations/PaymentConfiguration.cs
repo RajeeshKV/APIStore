@@ -22,10 +22,10 @@ internal sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
 
         builder.HasIndex(p => p.OrderId).IsUnique().HasDatabaseName("ix_payments_order");
         builder.HasIndex(p => p.ProviderPaymentId)
-            .HasFilter("provider_payment_id IS NOT NULL")
+            .HasFilter("\"ProviderPaymentId\" IS NOT NULL")
             .HasDatabaseName("ix_payments_provider_payment");
         builder.HasIndex(p => p.ProviderOrderId)
-            .HasFilter("provider_order_id IS NOT NULL")
+            .HasFilter("\"ProviderOrderId\" IS NOT NULL")
             .HasDatabaseName("ix_payments_provider_order");
 
         builder.HasOne(p => p.Order)

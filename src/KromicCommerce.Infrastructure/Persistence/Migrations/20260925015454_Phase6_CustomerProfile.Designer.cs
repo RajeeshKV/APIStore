@@ -57,11 +57,11 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("AnonymousId")
                         .HasDatabaseName("ix_carts_anonymous")
-                        .HasFilter("anonymous_id IS NOT NULL");
+                        .HasFilter("\"AnonymousId\" IS NOT NULL");
 
                     b.HasIndex("CustomerId")
                         .HasDatabaseName("ix_carts_customer")
-                        .HasFilter("customer_id IS NOT NULL");
+                        .HasFilter("\"CustomerId\" IS NOT NULL");
 
                     b.ToTable("carts", (string)null);
                 });
@@ -355,7 +355,7 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                     b.HasIndex("Sku")
                         .IsUnique()
                         .HasDatabaseName("ix_products_sku")
-                        .HasFilter("sku IS NOT NULL");
+                        .HasFilter("\"Sku\" IS NOT NULL");
 
                     b.HasIndex("Slug")
                         .IsUnique()
@@ -501,7 +501,7 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                     b.HasIndex("Sku")
                         .IsUnique()
                         .HasDatabaseName("ix_product_variants_sku")
-                        .HasFilter("sku IS NOT NULL");
+                        .HasFilter("\"Sku\" IS NOT NULL");
 
                     b.ToTable("product_variants", (string)null);
                 });
@@ -1071,11 +1071,11 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ProviderOrderId")
                         .HasDatabaseName("ix_payments_provider_order")
-                        .HasFilter("provider_order_id IS NOT NULL");
+                        .HasFilter("\"ProviderOrderId\" IS NOT NULL");
 
                     b.HasIndex("ProviderPaymentId")
                         .HasDatabaseName("ix_payments_provider_payment")
-                        .HasFilter("provider_payment_id IS NOT NULL");
+                        .HasFilter("\"ProviderPaymentId\" IS NOT NULL");
 
                     b.ToTable("payments", (string)null);
                 });

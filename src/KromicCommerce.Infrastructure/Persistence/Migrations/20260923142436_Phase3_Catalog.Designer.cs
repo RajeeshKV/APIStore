@@ -288,7 +288,7 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                     b.HasIndex("Sku")
                         .IsUnique()
                         .HasDatabaseName("ix_products_sku")
-                        .HasFilter("sku IS NOT NULL");
+                        .HasFilter("\"Sku\" IS NOT NULL");
 
                     b.HasIndex("Slug")
                         .IsUnique()
@@ -434,7 +434,7 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                     b.HasIndex("Sku")
                         .IsUnique()
                         .HasDatabaseName("ix_product_variants_sku")
-                        .HasFilter("sku IS NOT NULL");
+                        .HasFilter("\"Sku\" IS NOT NULL");
 
                     b.ToTable("product_variants", (string)null);
                 });

@@ -14,10 +14,10 @@ internal sealed class CartConfiguration : IEntityTypeConfiguration<KromicCommerc
         builder.Property(c => c.UpdatedAtUtc).IsRequired();
 
         builder.HasIndex(c => c.CustomerId)
-            .HasFilter("customer_id IS NOT NULL")
+            .HasFilter("\"CustomerId\" IS NOT NULL")
             .HasDatabaseName("ix_carts_customer");
         builder.HasIndex(c => c.AnonymousId)
-            .HasFilter("anonymous_id IS NOT NULL")
+            .HasFilter("\"AnonymousId\" IS NOT NULL")
             .HasDatabaseName("ix_carts_anonymous");
 
         builder.HasMany(c => c.Items)

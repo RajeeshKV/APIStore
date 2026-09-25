@@ -17,7 +17,7 @@ internal sealed class ProductVariantConfiguration : IEntityTypeConfiguration<Pro
         builder.Property(v => v.UpdatedAtUtc).IsRequired();
 
         builder.HasIndex(v => v.Sku)
-            .IsUnique().HasFilter("sku IS NOT NULL").HasDatabaseName("ix_product_variants_sku");
+            .IsUnique().HasFilter("\"Sku\" IS NOT NULL").HasDatabaseName("ix_product_variants_sku");
         builder.HasIndex(v => v.ProductId).HasDatabaseName("ix_product_variants_product");
     }
 }
