@@ -1,0 +1,71 @@
+# ============================================================
+# Kromic Commerce — .gitignore
+# ============================================================
+
+# ---- Secrets / environment files (NEVER commit) ------------
+.env
+.env.local
+.env.*.local
+*.secrets.json
+secrets.json
+appsettings.Secrets.json
+appsettings.Production.json
+
+# ---- .NET build artifacts ----------------------------------
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+*.ncrunch*
+_ReSharper*/
+*.DotSettings.user
+
+# ---- Test results ------------------------------------------
+TestResults/
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+coverage*/
+CoverageReport*/
+
+# ---- Logs --------------------------------------------------
+logs/
+*.log
+*.log.*
+
+# ---- EF Core migrations snapshot backups ------------------
+# (keep actual migration files; ignore generated designer backups)
+*.Designer.cs.bak
+
+# ---- Rider / JetBrains -------------------------------------
+.idea/
+*.iml
+
+# ---- VS Code -----------------------------------------------
+.vscode/
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# ---- OS ----------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- NuGet -------------------------------------------------
+*.nupkg
+*.snupkg
+project.lock.json
+packages/
+!**/[Pp]ackages/repositories.config
+
+# ---- Docker ------------------------------------------------
+docker-compose.override.yml
+
+# ---- Publishing --------------------------------------------
+publish/
+out/

@@ -1,0 +1,11 @@
+global using KromicCommerce.Domain.Common;
+global using KromicCommerce.Domain.Identity;
+global using KromicCommerce.Domain.Identity.Events;
+global using KromicCommerce.Domain.Store;
+global using KromicCommerce.Domain.Catalog;
+global using KromicCommerce.Domain.Catalog.Events;
+global using KromicCommerce.Domain.Cart;
+global using KromicCommerce.Domain.Orders;
+global using KromicCommerce.Domain.Orders.Events;
+global using KromicCommerce.Domain.Outbox;
+global using KromicCommerce.Domain.Webhooks;
