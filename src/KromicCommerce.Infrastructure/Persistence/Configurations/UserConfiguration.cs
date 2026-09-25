@@ -36,11 +36,11 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.HasIndex(u => u.NormalizedEmail).IsUnique().HasDatabaseName("ix_users_normalized_email");
         builder.HasIndex(u => u.NormalizedUsername)
             .IsUnique()
-            .HasFilter("normalized_username IS NOT NULL")
+            .HasFilter("\"NormalizedUsername\" IS NOT NULL")
             .HasDatabaseName("ix_users_normalized_username");
         builder.HasIndex(u => u.PhoneNumber)
             .IsUnique()
-            .HasFilter("phone_number IS NOT NULL")
+            .HasFilter("\"PhoneNumber\" IS NOT NULL")
             .HasDatabaseName("ix_users_phone_number");
 
         // Navigation

@@ -865,12 +865,12 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                     b.HasIndex("NormalizedUsername")
                         .IsUnique()
                         .HasDatabaseName("ix_users_normalized_username")
-                        .HasFilter("normalized_username IS NOT NULL");
+                        .HasFilter("\"NormalizedUsername\" IS NOT NULL");
 
                     b.HasIndex("PhoneNumber")
                         .IsUnique()
                         .HasDatabaseName("ix_users_phone_number")
-                        .HasFilter("phone_number IS NOT NULL");
+                        .HasFilter("\"PhoneNumber\" IS NOT NULL");
 
                     b.ToTable("users", (string)null);
                 });

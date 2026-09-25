@@ -51,7 +51,7 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                 table: "users",
                 column: "NormalizedUsername",
                 unique: true,
-                filter: "normalized_username IS NOT NULL");
+                filter: "\"NormalizedUsername\" IS NOT NULL");
         }
 
         /// <inheritdoc />

@@ -197,7 +197,7 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                 table: "users",
                 column: "PhoneNumber",
                 unique: true,
-                filter: "phone_number IS NOT NULL");
+                filter: "\"PhoneNumber\" IS NOT NULL");
         }
 
         /// <inheritdoc />
