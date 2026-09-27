@@ -46,7 +46,6 @@ try
 
     builder.Services.AddApiVersioningServices();
     builder.Services.AddSwaggerServices();
-    builder.Services.AddHealthCheckServices(builder.Configuration);
     builder.Services.AddCorsPolicy(builder.Configuration);
 
     builder.Services.AddControllers();
@@ -87,12 +86,6 @@ try
     app.UseRateLimiter();
 
     app.MapControllers();
-
-    app.MapHealthChecks("/health");
-    app.MapHealthChecks("/health/ready", new()
-    {
-        Predicate = check => check.Tags.Contains("db")
-    });
 
     app.Run();
 }
