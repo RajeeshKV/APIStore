@@ -13,21 +13,153 @@ All endpoints follow the pattern `/api/v1/...` and return JSON.
 
 ## Auth — `POST /api/v1/auth/...`
 
+The system has two completely separate authentication domains. Customer and admin authentication are independent; they share token infrastructure but nothing else.
+
+### Customer authentication — Google Sign-In only
+
+Customers authenticate exclusively via Google Sign-In. There is no customer password registration, no customer email/password login, and no customer password reset.
+
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
-| POST | `/register` | None | Register a new customer |
-| POST | `/login` | None | Login with email or username + password |
-| POST | `/google` | None | Authenticate via Google Sign-In ID token |
-| POST | `/refresh` | None | Rotate refresh token, get new access token |
-| POST | `/logout` | Customer | Revoke current device refresh token |
-| POST | `/logout-all` | Customer | Revoke all refresh tokens, increment TokenVersion |
-| POST | `/request-password-reset` | None | Send reset token to admin email (always 204) |
-| POST | `/reset-password` | None | Reset password using email + token |
+| POST | `/auth/google` | None | Customer Google Sign-In |
+| POST | `/auth/refresh` | None | Rotate refresh token, get new access token |
+| POST | `/auth/logout` | Bearer | Revoke current device refresh token |
+| POST | `/auth/logout-all` | Bearer | Revoke all refresh tokens, increment TokenVersion |
 
-**Login request:** `{ email, password, deviceHint? }` — `email` accepts email address or username.  
-**Register request:** `{ email, password, firstName?, lastName?, phoneNumber? }`  
-**Password reset request:** `{ email }` — never reveals whether account exists.  
+**Google Sign-In flow:**
+
+```
+Customer clicks "Continue with Google"
+       ↓
+Google Sign-In completes in the browser/app
+       ↓
+Client receives a Google ID token (credential)
+       ↓
+POST /auth/google  { idToken, deviceHint? }
+       ↓
+Backend validates ID token against Google's public keys
+       ↓
+Backend finds or creates customer account (keyed by Google subject, not email)
+       ↓
+Backend issues application JWT + refresh token
+       ↓
+200 { accessToken, refreshToken, accessTokenExpiresInSeconds, tokenType }
+```
+
+**Google request:** `{ idToken, deviceHint? }`  
+**The Google ID token is validated server-side — it is never used as the application authorization credential.**
+
+**Account resolution on Google callback:**
+
+| Scenario | Outcome |
+|----------|---------|
+| Google subject already linked | Returns existing customer |
+| Google subject not found, email matches existing account | Links Google identity to existing account |
+| Google subject not found, no email match | Creates new customer + CustomerProfile |
+| Account deactivated | 403 `AUTH_ACCOUNT_INACTIVE` |
+| Invalid / expired Google token | 401 `AUTH_GOOGLE_INVALID` |
+
+**Customer identity key:** Google `sub` (subject) claim — stable across email changes. Email is stored as reference only and is never used as the primary identity key.
+
+---
+
+### Admin authentication — username or email + password
+
+Admins authenticate with a username or email address plus a password. Google Sign-In is not used for admin authentication.
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| POST | `/auth/login` | None | Admin login (username or email + password) |
+| POST | `/auth/refresh` | None | Rotate refresh token, get new access token |
+| POST | `/auth/logout` | Bearer | Revoke current device refresh token |
+| POST | `/auth/logout-all` | Bearer | Revoke all refresh tokens, increment TokenVersion |
+| POST | `/auth/request-password-reset` | None | Send reset token to admin email (always 204) |
+| POST | `/auth/reset-password` | None | Complete reset using email + token |
+
+**Login request:** `{ identifier, password, deviceHint? }` — `identifier` accepts either an email address or a username.
+
+**Admin login flow:**
+
+```
+POST /auth/login  { identifier: "admin@example.com" | "kromic_admin", password }
+       ↓
+Lookup by NormalizedEmail OR NormalizedUsername (case-insensitive)
+       ↓
+Verify password (PBKDF2/HMAC-SHA256)
+       ↓
+200 { accessToken, refreshToken, accessTokenExpiresInSeconds, tokenType }
+```
+
+**Admin password reset flow:**
+
+```
+POST /auth/request-password-reset  { email }
+       → Always 204 (never reveals whether the email exists)
+       → If admin found: generates cryptographically random token,
+         stores SHA-256 hash, sends raw token via Brevo email
+       → Token TTL: 15 minutes, single-use
+
+POST /auth/reset-password  { email, token, newPassword, confirmPassword }
+       → Validates token hash, checks expiry
+       → On success: updates password hash, increments TokenVersion,
+         revokes all refresh tokens (all devices logged out)
+       → Token is cleared after first use
+```
+
+**Password reset request:** `{ email }` — never reveals whether the account exists (enumeration-safe).  
 **Reset password request:** `{ email, token, newPassword, confirmPassword }`  
+Rate-limited: 3 requests / 15 minutes / IP for both reset endpoints.
+
+---
+
+### Shared token response
+
+All authentication endpoints return the same token envelope:
+
+```json
+{
+  "accessToken": "eyJ...",
+  "refreshToken": "raw-refresh-token",
+  "accessTokenExpiresInSeconds": 900,
+  "tokenType": "Bearer"
+}
+```
+
+**Token properties:**
+
+| Property | Value |
+|----------|-------|
+| Algorithm | HMAC-SHA256 |
+| Access token lifetime | 15 minutes (configurable) |
+| Refresh token lifetime | 30 days (configurable) |
+| Refresh token storage | SHA-256 hash only — raw token returned once, never stored |
+| Rotation | Every refresh issues a new token and revokes the old one |
+| Reuse detection | Reusing a revoked token revokes the entire token family |
+| Token versioning | `tv` claim embedded in JWT; incremented on logout-all and password reset |
+
+**JWT claims:** `sub` (userId), `email`, `role` (Customer/Admin), `tv` (tokenVersion), `jti` (unique token ID).
+
+**Refresh token rotation:**
+
+```
+POST /auth/refresh  { refreshToken, deviceHint? }
+       ↓
+Hash incoming token → lookup by hash
+       ↓
+If already revoked → revoke all tokens for this user → 401 (reuse detected)
+If expired → 401
+       ↓
+Issue new refresh token, revoke old one (linked for audit chain)
+       ↓
+200 { accessToken, refreshToken, ... }
+```
+
+**Logout:**
+
+```
+POST /auth/logout  { refreshToken }         — revokes single device token
+POST /auth/logout-all                       — revokes all tokens + increments TokenVersion
+```  
 
 ---
 
@@ -341,13 +473,19 @@ Health responses never expose connection strings, credentials, or stack traces.
 
 | Level | Endpoints |
 |-------|-----------|
-| Public (no auth) | Store settings, categories, brands, products, policies, OTP, auth |
+| Public (no auth) | Store settings, categories, brands, products, policies, OTP |
+| Customer Google auth only | `POST /auth/google` (issues application JWT) |
+| Admin password auth only | `POST /auth/login`, `POST /auth/request-password-reset`, `POST /auth/reset-password` |
+| Shared (any valid JWT) | `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all` |
 | Customer | Cart, checkout, orders, profile, addresses, coupon validation |
 | Customer or Admin | Coupon validation |
 | Admin only | All `/admin/` routes |
 | None (signed) | Payment webhook (`/payments/webhook` — verified by HMAC signature) |
 
 Frontend guards are UX only. Authorization is enforced server-side on every request.
+
+> **Customer authentication:** Google Sign-In only. No customer password registration, login, or password reset endpoints exist.  
+> **Admin authentication:** Username or email + password. Google Sign-In is not used for admin access.
 
 ---
 
@@ -366,12 +504,17 @@ Both fields are `null` when not configured. Set them in the store's environment 
 
 ## Important Security Notes
 
+- **Two auth domains.** Customer: Google Sign-In only → application JWT. Admin: username/email + password → application JWT. Neither domain's tokens work in the other's flows.
 - **Never trust client prices.** All monetary values are calculated server-side.
-- **JWT TokenVersion** — incremented on logout-all and password reset. Old JWTs rejected immediately.
+- **JWT TokenVersion (`tv` claim)** — incremented on logout-all and password reset. Old JWTs rejected immediately via short 15-minute expiry; refresh tokens are revoked synchronously.
+- **Google token is not the app token.** The Google ID token is validated server-side only; the application issues its own JWT. The Google token never reaches the `Authorization` header.
+- **Google identity key.** Customer accounts are keyed by Google `sub` (subject), not email. Email changes do not create duplicate accounts.
+- **No account takeover via email.** Linking a Google identity to an existing email account is safe — it only adds an `ExternalLogin` record; the existing account continues to work.
 - **Coupon concurrency** — enforced via PostgreSQL xmin optimistic locking with retry. Usage limits cannot be exceeded under concurrent load.
 - **Inventory concurrency** — enforced via PostgreSQL xmin on `InventoryItems`. Cannot oversell.
 - **Webhook idempotency** — unique index on `(Provider, ProviderEventId)`. Duplicates safely ignored.
 - **Password reset tokens** — SHA-256 hashed, 15-minute TTL, single-use, never logged or returned.
+- **Refresh token reuse detection** — reusing a revoked token revokes the entire token family for that user (all devices).
 - **Secrets** — never in API responses. Masking applied where status display is needed.
 - **Tracking IDs** — GA4 and Meta Pixel IDs are public browser-safe values; exposed in `/store/settings`. No server-side tracking calls.
 - **Transactional emails** — OrderCreated, PaymentSucceeded, OrderCancelled, PaymentFailed, OrderShipped each have dedicated email methods. Email failures are retried via Outbox but never corrupt the core order transaction.
@@ -396,3 +539,31 @@ Sentry is integrated for production error monitoring. Configuration is optional 
 - Request bodies are **never** sent (`MaxRequestBodySize = None`)
 
 Sentry does not replace Serilog. Structured application logs remain in Serilog; Sentry provides exception alerting and error dashboards.
+
+---
+
+## Product Variants — Admin (Phase 11)
+
+All require `AdminOnly`. Variants are nested under their parent product.
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/v1/products/{productId}/variants` | List all variants with current stock levels |
+| GET | `/api/v1/products/{productId}/variants/{variantId}` | Get single variant with stock |
+| POST | `/api/v1/products/{productId}/variants` | Create variant (auto-creates InventoryItem at 0 stock) |
+| PUT | `/api/v1/products/{productId}/variants/{variantId}` | Update variant fields and active state |
+| DELETE | `/api/v1/products/{productId}/variants/{variantId}` | Delete variant + its inventory record |
+
+**VariantResponse:** `id`, `sku` (nullable, globally unique when set), `priceOverride` (null = inherits product base price), `sortOrder`, `isActive`, `attributeValueIds` (comma-separated sorted Guid string), `availableStock`.
+
+**Create/Update request:** `sku?`, `priceOverride?`, `sortOrder`, `isActive` (update only), `attributeValueIds?` (list of Guid).
+
+**Server-enforced validation rules:**
+- SKU globally unique across all variants (when provided)
+- Every `attributeValueId` must belong to an attribute of this product
+- Max one value per attribute per variant (no two colors on same variant)
+- Attribute-value combination is order-insensitive: `[ColorBlack, SizeLarge]` ≡ `[SizeLarge, ColorBlack]`
+- Duplicate combination rejected with `VARIANT_DUPLICATE_COMBINATION`
+- `priceOverride` ≥ 0; `sortOrder` ≥ 0
+
+**Inventory:** Creating a variant auto-creates an `InventoryItem` at `onHand = 0`. Use `PUT /api/v1/inventory/{productId}` to set real stock. Deleting a variant also removes its inventory record. Existing order snapshots are unaffected (order items store immutable price/name copies).

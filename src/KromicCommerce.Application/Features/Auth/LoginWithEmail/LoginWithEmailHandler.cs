@@ -12,15 +12,15 @@ internal sealed class LoginWithEmailHandler(
     ILogger<LoginWithEmailHandler> logger)
     : ICommandHandler<LoginWithEmailCommand, TokenResponse>
 {
-    // Generic error — never reveal whether email or password was wrong
+    // Generic error — never reveal whether identifier (email/username) or password was wrong
     private static readonly Error InvalidCredentials =
-        Error.Unauthorized("AUTH_INVALID_CREDENTIALS", "Invalid email or password.");
+        Error.Unauthorized("AUTH_INVALID_CREDENTIALS", "Invalid credentials.");
 
     public async Task<Result<TokenResponse>> Handle(
         LoginWithEmailCommand command,
         CancellationToken cancellationToken)
     {
-        var input = command.Email.Trim();
+        var input = command.Identifier.Trim();
         var normalised = input.ToUpperInvariant();
 
         // Support login by email OR username — check both normalised fields

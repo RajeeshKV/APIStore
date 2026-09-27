@@ -59,7 +59,7 @@ public sealed class AuthFlowTests(DatabaseFixture db) : IntegrationTestBase(db)
             NullLogger<LoginWithEmailHandler>.Instance);
 
         var loginResult = await loginHandler.Handle(
-            new LoginWithEmailCommand(email, "Password123!", "device1"),
+            new LoginWithEmailCommand(Identifier: email, Password: "Password123!", DeviceHint: "device1"),
             CancellationToken.None);
 
         loginResult.IsSuccess.Should().BeTrue();

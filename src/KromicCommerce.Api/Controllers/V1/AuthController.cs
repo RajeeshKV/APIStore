@@ -7,39 +7,34 @@ using KromicCommerce.Application.Features.Auth.Logout;
 using KromicCommerce.Application.Features.Auth.LogoutAll;
 using KromicCommerce.Application.Features.Auth.PasswordReset;
 using KromicCommerce.Application.Features.Auth.RefreshToken;
-using KromicCommerce.Application.Features.Auth.RegisterCustomer;
 using KromicCommerce.Contracts.Auth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 
 namespace KromicCommerce.Api.Controllers.V1;
 
+/// <summary>
+/// Authentication endpoints.
+///
+/// Customer authentication: Google Sign-In only (POST /auth/google).
+/// Admin authentication:    username or email + password (POST /auth/login).
+///
+/// There is no customer email/password registration or password-reset endpoint —
+/// customers authenticate exclusively via Google OAuth.
+/// </summary>
 [ApiController]
 [ApiVersion("1.0")]
 [Route("api/v{version:apiVersion}/auth")]
 public sealed class AuthController(IMediator mediator, ICurrentUserService currentUser) : ControllerBase
 {
-    /// <summary>Register a new customer account.</summary>
-    [HttpPost("register")]
-    [EnableRateLimiting(RateLimitingExtensions.AuthPolicy)]
-    [ProducesResponseType(typeof(TokenResponse), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<IActionResult> Register(
-        [FromBody] RegisterRequest request,
-        CancellationToken cancellationToken)
-    {
-        var result = await mediator.Send(
-            new RegisterCustomerCommand(request.Email, request.Password,
-                request.FirstName, request.LastName, request.PhoneNumber, null),
-            cancellationToken);
+    // -------------------------------------------------------------------------
+    // Admin — username/email + password
+    // -------------------------------------------------------------------------
 
-        return result.IsSuccess
-            ? StatusCode(StatusCodes.Status201Created, result.Value)
-            : result.Error.ToActionResult();
-    }
-
-    /// <summary>Login with email and password.</summary>
+    /// <summary>
+    /// Admin login. Accepts either an email address or a username in the
+    /// <c>identifier</c> field. Returns a JWT access token and a refresh token.
+    /// </summary>
     [HttpPost("login")]
     [EnableRateLimiting(RateLimitingExtensions.AuthPolicy)]
     [ProducesResponseType(typeof(TokenResponse), StatusCodes.Status200OK)]
@@ -49,7 +44,7 @@ public sealed class AuthController(IMediator mediator, ICurrentUserService curre
         CancellationToken cancellationToken)
     {
         var result = await mediator.Send(
-            new LoginWithEmailCommand(request.Email, request.Password, request.DeviceHint),
+            new LoginWithEmailCommand(request.Identifier, request.Password, request.DeviceHint),
             cancellationToken);
 
         return result.IsSuccess
@@ -57,7 +52,18 @@ public sealed class AuthController(IMediator mediator, ICurrentUserService curre
             : result.Error.ToActionResult();
     }
 
-    /// <summary>Authenticate via Google Sign-In ID token.</summary>
+    // -------------------------------------------------------------------------
+    // Customer — Google Sign-In
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Customer authentication via Google Sign-In.
+    /// The client completes the Google Sign-In flow and POSTs the resulting
+    /// Google ID token here. The backend validates the token with Google,
+    /// finds or creates the customer account, and returns the application's
+    /// own JWT access token and refresh token.
+    /// The Google token is never used as an API authorization credential.
+    /// </summary>
     [HttpPost("google")]
     [EnableRateLimiting(RateLimitingExtensions.AuthPolicy)]
     [ProducesResponseType(typeof(TokenResponse), StatusCodes.Status200OK)]
@@ -75,7 +81,11 @@ public sealed class AuthController(IMediator mediator, ICurrentUserService curre
             : result.Error.ToActionResult();
     }
 
-    /// <summary>Refresh access token using a valid refresh token.</summary>
+    // -------------------------------------------------------------------------
+    // Shared — token lifecycle
+    // -------------------------------------------------------------------------
+
+    /// <summary>Refresh access token using a valid refresh token (rotation).</summary>
     [HttpPost("refresh")]
     [EnableRateLimiting(RateLimitingExtensions.AuthPolicy)]
     [ProducesResponseType(typeof(TokenResponse), StatusCodes.Status200OK)]
@@ -93,7 +103,7 @@ public sealed class AuthController(IMediator mediator, ICurrentUserService curre
             : result.Error.ToActionResult();
     }
 
-    /// <summary>Revoke the current refresh token (single device logout).</summary>
+    /// <summary>Revoke the current device's refresh token (single device logout).</summary>
     [HttpPost("logout")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -108,7 +118,11 @@ public sealed class AuthController(IMediator mediator, ICurrentUserService curre
         return NoContent();
     }
 
-    /// <summary>Revoke all refresh tokens and increment token version (all devices logout).</summary>
+    /// <summary>
+    /// Revoke all refresh tokens and increment token version (all devices logout).
+    /// Existing short-lived access tokens remain valid until they expire naturally
+    /// (up to <c>AccessTokenExpiryMinutes</c>).
+    /// </summary>
     [HttpPost("logout-all")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -121,9 +135,14 @@ public sealed class AuthController(IMediator mediator, ICurrentUserService curre
         return NoContent();
     }
 
+    // -------------------------------------------------------------------------
+    // Admin — password reset
+    // -------------------------------------------------------------------------
+
     /// <summary>
     /// Request a password reset email for an admin account.
     /// Always returns 204 regardless of whether the email exists (prevents enumeration).
+    /// Rate limited to 3 requests per 15 minutes per IP.
     /// </summary>
     [HttpPost("request-password-reset")]
     [EnableRateLimiting(RateLimitingExtensions.PasswordResetPolicy)]
@@ -141,8 +160,9 @@ public sealed class AuthController(IMediator mediator, ICurrentUserService curre
     }
 
     /// <summary>
-    /// Complete the password reset using the token received by email.
-    /// On success all existing sessions are invalidated.
+    /// Complete the admin password reset using the token received by email.
+    /// On success all existing sessions are invalidated (token version incremented,
+    /// all refresh tokens revoked).
     /// </summary>
     [HttpPost("reset-password")]
     [EnableRateLimiting(RateLimitingExtensions.PasswordResetPolicy)]
