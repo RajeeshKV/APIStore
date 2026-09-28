@@ -16,6 +16,8 @@ public interface IApplicationDbContext
 {
     /// <summary>Provides access to database-level operations (transactions, migrations, raw SQL).</summary>
     DatabaseFacade Database { get; }
+    /// <summary>Access to the EF change tracker for cache clearing on concurrency retries.</summary>
+    Microsoft.EntityFrameworkCore.ChangeTracking.ChangeTracker ChangeTracker { get; }
     // -----------------------------------------------------------------------
     // Identity
     // -----------------------------------------------------------------------

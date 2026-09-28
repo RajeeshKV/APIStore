@@ -50,12 +50,13 @@ public sealed class OrdersController(IMediator mediator, ICurrentUserService cur
     [ProducesResponseType(typeof(OrderResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> CancelOrder(
-        Guid id, [FromBody] string? reason, CancellationToken ct)
+        Guid id, [FromBody] CancelOrderRequest? request, CancellationToken ct)
     {
         var userId = currentUser.UserId;
         if (userId is null) return Unauthorized();
 
-        var result = await mediator.Send(new CancelOrderCommand(id, userId.Value, reason), ct);
+        var result = await mediator.Send(
+            new CancelOrderCommand(id, userId.Value, request?.Reason), ct);
         return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 }
