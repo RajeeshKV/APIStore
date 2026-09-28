@@ -17,24 +17,26 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
             // AddToCart requests both found no existing item and each inserted a new row.
             //
             // Strategy:
-            //   - Keep the row with the earliest AddedAt (lowest id as tiebreaker).
+            //   - Keep the row with the earliest AddedAt (lowest "Id" as tiebreaker).
             //   - Sum the quantities from all duplicates into the surviving row.
             //   - Delete the duplicate rows.
             //
-            // The CTE identifies groups with more than one row sharing the same
-            // (CartId, ProductId, VariantId) — NULL-safe via IS NOT DISTINCT FROM.
+            // NOTE: EF Core's default column naming convention for this project uses
+            // PascalCase quoted identifiers (e.g. "Id", "CartId"). PostgreSQL column
+            // names ARE case-sensitive when the table was created with quoted names.
+            // All column references below use the exact quoted names EF generated.
             // -----------------------------------------------------------------------
             migrationBuilder.Sql(@"
                 WITH duplicates AS (
                     SELECT
-                        id,
+                        ""Id"",
                         ""CartId"",
                         ""ProductId"",
                         ""VariantId"",
                         ""Quantity"",
                         ROW_NUMBER() OVER (
                             PARTITION BY ""CartId"", ""ProductId"", ""VariantId""
-                            ORDER BY ""AddedAt"", id
+                            ORDER BY ""AddedAt"", ""Id""
                         ) AS rn,
                         SUM(""Quantity"") OVER (
                             PARTITION BY ""CartId"", ""ProductId"", ""VariantId""
@@ -44,16 +46,16 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                 UPDATE cart_items ci
                 SET ""Quantity"" = d.total_qty
                 FROM duplicates d
-                WHERE ci.id = d.id AND d.rn = 1;
+                WHERE ci.""Id"" = d.""Id"" AND d.rn = 1;
 
                 DELETE FROM cart_items
-                WHERE id IN (
-                    SELECT id FROM (
+                WHERE ""Id"" IN (
+                    SELECT ""Id"" FROM (
                         SELECT
-                            id,
+                            ""Id"",
                             ROW_NUMBER() OVER (
                                 PARTITION BY ""CartId"", ""ProductId"", ""VariantId""
-                                ORDER BY ""AddedAt"", id
+                                ORDER BY ""AddedAt"", ""Id""
                             ) AS rn
                         FROM cart_items
                     ) ranked
