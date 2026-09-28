@@ -20,6 +20,7 @@ public sealed class UpdateLocaleHandlerTests
                 It.IsAny<object[]>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(settings);
         _db.Setup(d => d.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        _svc.Setup(s => s.GetAsync(It.IsAny<CancellationToken>())).ReturnsAsync(settings);
 
         var result = await CreateHandler().Handle(
             new UpdateLocaleCommand("US", "USD", "America/New_York", "en-US"),

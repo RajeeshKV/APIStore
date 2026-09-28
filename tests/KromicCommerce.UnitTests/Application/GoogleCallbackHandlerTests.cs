@@ -1,6 +1,8 @@
 using KromicCommerce.Application.Abstractions.Auth;
+using KromicCommerce.Application.Abstractions.Store;
 using KromicCommerce.Application.Features.Auth.GoogleCallback;
 using KromicCommerce.Domain.Identity;
+using KromicCommerce.Domain.Store;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -18,16 +20,44 @@ public sealed class GoogleCallbackHandlerTests
     private readonly Mock<IGoogleAuthService> _googleAuth = new();
     private readonly Mock<IJwtService> _jwt = new();
     private readonly Mock<IRefreshTokenService> _rts = new();
+    private readonly Mock<IBusinessSettingsService> _businessSettings = new();
     private readonly IOptions<AuthTokenOptions> _opts =
         Microsoft.Extensions.Options.Options.Create(
             new AuthTokenOptions { AccessTokenExpiryMinutes = 15, RefreshTokenExpiryDays = 30 });
 
+    private const string TestClientId = "test-client-id.apps.googleusercontent.com";
+
+    public GoogleCallbackHandlerTests()
+    {
+        // Default: Google OAuth is configured and enabled
+        SetupConfiguredGoogleAuth();
+    }
+
     private GoogleCallbackHandler CreateHandler() =>
-        new(_db.Object, _googleAuth.Object, _jwt.Object, _rts.Object, _opts,
-            NullLogger<GoogleCallbackHandler>.Instance);
+        new(_db.Object, _businessSettings.Object, _googleAuth.Object, _jwt.Object,
+            _rts.Object, _opts, NullLogger<GoogleCallbackHandler>.Instance);
 
     private static GoogleCallbackCommand Cmd(string idToken = "valid_id_token") =>
         new(idToken, DeviceHint: "web");
+
+    // -------------------------------------------------------------------------
+    // Configuration checks
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Returns_error_when_google_not_configured()
+    {
+        // Arrange: no Google credentials in DB
+        var settings = BusinessSettings.CreateDefault("Test Store");
+        // Auth has no GoogleClientId — IsGoogleOAuthConfigured = false
+        _businessSettings.Setup(s => s.GetAsync(It.IsAny<CancellationToken>()))
+                         .ReturnsAsync(settings);
+
+        var result = await CreateHandler().Handle(Cmd(), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("AUTH_GOOGLE_NOT_CONFIGURED");
+    }
 
     // -------------------------------------------------------------------------
     // Invalid / missing Google token
@@ -36,7 +66,7 @@ public sealed class GoogleCallbackHandlerTests
     [Fact]
     public async Task Returns_unauthorized_when_google_token_invalid()
     {
-        _googleAuth.Setup(g => g.ValidateIdTokenAsync("bad_token", It.IsAny<CancellationToken>()))
+        _googleAuth.Setup(g => g.ValidateIdTokenAsync("bad_token", TestClientId, It.IsAny<CancellationToken>()))
                    .ReturnsAsync((GoogleIdentity?)null);
 
         var result = await CreateHandler().Handle(new GoogleCallbackCommand("bad_token", null), CancellationToken.None);
@@ -53,7 +83,7 @@ public sealed class GoogleCallbackHandlerTests
     [Fact]
     public async Task Creates_new_customer_when_no_existing_account()
     {
-        var identity = GoogleIdentity("new-sub-001", "newuser@gmail.com");
+        var identity = MakeIdentity("new-sub-001", "newuser@gmail.com");
         SetupValidGoogleToken(identity);
         SetupNoExternalLogin();
         SetupNoExistingUserByEmail("newuser@gmail.com");
@@ -63,7 +93,6 @@ public sealed class GoogleCallbackHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.AccessToken.Should().Be("app_access_token");
-        // Verify the application token is issued — not the Google token
         result.Value.AccessToken.Should().NotBe("valid_id_token");
         result.Value.RefreshToken.Should().Be("raw_rt");
     }
@@ -71,7 +100,7 @@ public sealed class GoogleCallbackHandlerTests
     [Fact]
     public async Task New_customer_has_customer_role_in_issued_jwt()
     {
-        var identity = GoogleIdentity("sub-role-check", "role@gmail.com");
+        var identity = MakeIdentity("sub-role-check", "role@gmail.com");
         SetupValidGoogleToken(identity);
         SetupNoExternalLogin();
         SetupNoExistingUserByEmail("role@gmail.com");
@@ -79,7 +108,6 @@ public sealed class GoogleCallbackHandlerTests
 
         var result = await CreateHandler().Handle(Cmd(), CancellationToken.None);
 
-        // JWT is issued with role=Customer — verified by the IssueAccessToken mock call
         result.IsSuccess.Should().BeTrue();
         _jwt.Verify(j => j.IssueAccessToken(
             It.IsAny<Guid>(), "role@gmail.com", nameof(UserRole.Customer), It.IsAny<int>()),
@@ -96,11 +124,9 @@ public sealed class GoogleCallbackHandlerTests
     {
         var user = User.CreateCustomer("existing@gmail.com", passwordHash: null, "Ex", "User");
         var externalLogin = ExternalLogin.Create(user.Id, "Google", "existing-sub-999", "existing@gmail.com");
-
-        // Inject navigation via reflection (EF would normally do this)
         typeof(ExternalLogin).GetProperty("User")!.SetValue(externalLogin, user);
 
-        var identity = GoogleIdentity("existing-sub-999", "existing@gmail.com");
+        var identity = MakeIdentity("existing-sub-999", "existing@gmail.com");
         SetupValidGoogleToken(identity);
         SetupExternalLoginFound(externalLogin);
         SetupPersistence();
@@ -119,7 +145,7 @@ public sealed class GoogleCallbackHandlerTests
         var externalLogin = ExternalLogin.Create(user.Id, "Google", "inactive-sub-007", "inactive@gmail.com");
         typeof(ExternalLogin).GetProperty("User")!.SetValue(externalLogin, user);
 
-        var identity = GoogleIdentity("inactive-sub-007", "inactive@gmail.com");
+        var identity = MakeIdentity("inactive-sub-007", "inactive@gmail.com");
         SetupValidGoogleToken(identity);
         SetupExternalLoginFound(externalLogin);
 
@@ -137,9 +163,8 @@ public sealed class GoogleCallbackHandlerTests
     [Fact]
     public async Task Links_google_identity_to_existing_local_account_with_same_email()
     {
-        // A local password account exists with this email
         var existingUser = User.CreateCustomer("shared@example.com", "password_hash", "Local", "User");
-        var identity = GoogleIdentity("new-sub-link", "shared@example.com");
+        var identity = MakeIdentity("new-sub-link", "shared@example.com");
 
         SetupValidGoogleToken(identity);
         SetupNoExternalLogin();
@@ -148,34 +173,8 @@ public sealed class GoogleCallbackHandlerTests
 
         var result = await CreateHandler().Handle(Cmd(), CancellationToken.None);
 
-        // Must succeed and issue an app token for the existing account — no duplicate created
         result.IsSuccess.Should().BeTrue();
         result.Value.AccessToken.Should().Be("app_access_token");
-    }
-
-    // -------------------------------------------------------------------------
-    // Identity is keyed by subject, not email
-    // -------------------------------------------------------------------------
-
-    [Fact]
-    public async Task Lookup_uses_provider_subject_not_email()
-    {
-        // Two calls: one with the correct subject (found), one proving email alone is not used
-        var user = User.CreateCustomer("user@gmail.com", null, "Test", "User");
-        var externalLogin = ExternalLogin.Create(user.Id, "Google", "stable-sub-123", "user@gmail.com");
-        typeof(ExternalLogin).GetProperty("User")!.SetValue(externalLogin, user);
-
-        // Correct subject → found
-        var identity = GoogleIdentity("stable-sub-123", "user@gmail.com");
-        SetupValidGoogleToken(identity);
-        SetupExternalLoginFound(externalLogin);
-        SetupPersistence();
-
-        var result = await CreateHandler().Handle(Cmd(), CancellationToken.None);
-        result.IsSuccess.Should().BeTrue();
-
-        // The ExternalLogin was looked up by (Provider="Google", ProviderSubject="stable-sub-123")
-        // This is verified by the fact that SetupExternalLoginFound filters on ProviderSubject
     }
 
     // -------------------------------------------------------------------------
@@ -186,9 +185,9 @@ public sealed class GoogleCallbackHandlerTests
     public async Task Issued_access_token_is_application_jwt_not_google_token()
     {
         const string googleIdToken = "google.id.token.value";
-        var identity = GoogleIdentity("app-jwt-sub", "appjwt@gmail.com");
+        var identity = MakeIdentity("app-jwt-sub", "appjwt@gmail.com");
 
-        _googleAuth.Setup(g => g.ValidateIdTokenAsync(googleIdToken, It.IsAny<CancellationToken>()))
+        _googleAuth.Setup(g => g.ValidateIdTokenAsync(googleIdToken, TestClientId, It.IsAny<CancellationToken>()))
                    .ReturnsAsync(identity);
         SetupNoExternalLogin();
         SetupNoExistingUserByEmail("appjwt@gmail.com");
@@ -197,7 +196,6 @@ public sealed class GoogleCallbackHandlerTests
         var result = await CreateHandler().Handle(new GoogleCallbackCommand(googleIdToken, null), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        // The app token is issued by _jwt (our mock returns "app_access_token"), NOT the Google token
         result.Value.AccessToken.Should().Be("app_access_token");
         result.Value.AccessToken.Should().NotBe(googleIdToken);
     }
@@ -206,38 +204,43 @@ public sealed class GoogleCallbackHandlerTests
     // Helpers
     // -------------------------------------------------------------------------
 
-    private static GoogleIdentity GoogleIdentity(string subject, string email) =>
+    private static GoogleIdentity MakeIdentity(string subject, string email) =>
         new(Subject: subject, Email: email, EmailVerified: true,
             GivenName: "Test", FamilyName: "User", PictureUrl: null);
 
+    private void SetupConfiguredGoogleAuth()
+    {
+        // Build a BusinessSettings with Google credentials configured
+        var settings = BusinessSettings.CreateDefault("Test Store");
+        settings.UpdateGoogleCredentials(TestClientId, "enc-secret", "https://example.com/callback", true);
+        _businessSettings.Setup(s => s.GetAsync(It.IsAny<CancellationToken>()))
+                         .ReturnsAsync(settings);
+    }
+
     private void SetupValidGoogleToken(GoogleIdentity identity)
     {
-        _googleAuth.Setup(g => g.ValidateIdTokenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _googleAuth.Setup(g => g.ValidateIdTokenAsync(It.IsAny<string>(), TestClientId, It.IsAny<CancellationToken>()))
                    .ReturnsAsync(identity);
     }
 
     private void SetupNoExternalLogin()
     {
-        _db.Setup(d => d.ExternalLogins)
-           .Returns(MockDbSet<ExternalLogin>([]));
+        _db.Setup(d => d.ExternalLogins).Returns(MockDbSet<ExternalLogin>([]));
     }
 
     private void SetupExternalLoginFound(ExternalLogin login)
     {
-        _db.Setup(d => d.ExternalLogins)
-           .Returns(MockDbSet([login]));
+        _db.Setup(d => d.ExternalLogins).Returns(MockDbSet([login]));
     }
 
     private void SetupNoExistingUserByEmail(string email)
     {
-        _db.Setup(d => d.Users)
-           .Returns(MockDbSet<User>([]));
+        _db.Setup(d => d.Users).Returns(MockDbSet<User>([]));
     }
 
     private void SetupExistingUserByEmail(string email, User user)
     {
-        _db.Setup(d => d.Users)
-           .Returns(MockDbSet([user]));
+        _db.Setup(d => d.Users).Returns(MockDbSet([user]));
     }
 
     private void SetupPersistence()

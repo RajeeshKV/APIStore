@@ -23,7 +23,11 @@ internal sealed class UpdateAuthSettingsHandler(
             command.GoogleOAuthEnabled, command.EmailPasswordEnabled,
             command.MobileOtpEnabled, command.OtpExpiryMinutes,
             command.OtpResendCooldownSeconds, command.OtpMaxAttempts,
-            command.SmsProvider);
+            command.SmsProvider,
+            // Preserve existing Google credentials — this handler only changes flags, not credentials
+            googleClientId: settings.Auth.GoogleClientId,
+            encryptedGoogleClientSecret: settings.Auth.EncryptedGoogleClientSecret,
+            googleRedirectUri: settings.Auth.GoogleRedirectUri);
 
         settings.UpdateAuth(auth);
         await db.SaveChangesAsync(cancellationToken);

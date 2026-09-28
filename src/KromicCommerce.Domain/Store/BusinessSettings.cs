@@ -153,4 +153,49 @@ public sealed class BusinessSettings : AuditableEntity
 
     public void UpdateSeo(SeoSettings seo) =>
         Seo = seo ?? throw new ArgumentNullException(nameof(seo));
+
+    /// <summary>
+    /// Persists encrypted Google OAuth credentials into the auth settings.
+    /// ClientSecret must be encrypted by the caller (ISecretProtectionService.Protect)
+    /// before passing it here — never store plaintext secrets.
+    /// Also sets GoogleOAuthEnabled=true so the feature becomes active immediately.
+    /// </summary>
+    public void UpdateGoogleCredentials(
+        string clientId,
+        string encryptedClientSecret,
+        string? redirectUri,
+        bool enabled = true)
+    {
+        if (string.IsNullOrWhiteSpace(clientId))
+            throw new ArgumentException("Google Client ID must not be empty.", nameof(clientId));
+        if (string.IsNullOrWhiteSpace(encryptedClientSecret))
+            throw new ArgumentException("Encrypted Google Client Secret must not be empty.", nameof(encryptedClientSecret));
+
+        Auth = Auth.WithGoogleCredentials(clientId, encryptedClientSecret, redirectUri);
+
+        // Sync the enabled flag — can be set to false to keep credentials but disable the feature
+        if (Auth.GoogleOAuthEnabled != enabled)
+        {
+            Auth = StoreAuthSettings.Create(
+                googleOAuthEnabled: enabled,
+                emailPasswordEnabled: Auth.EmailPasswordEnabled,
+                mobileOtpEnabled: Auth.MobileOtpEnabled,
+                otpExpiryMinutes: Auth.OtpExpiryMinutes,
+                otpResendCooldownSeconds: Auth.OtpResendCooldownSeconds,
+                otpMaxAttempts: Auth.OtpMaxAttempts,
+                smsProvider: Auth.SmsProvider,
+                googleClientId: Auth.GoogleClientId,
+                encryptedGoogleClientSecret: Auth.EncryptedGoogleClientSecret,
+                googleRedirectUri: Auth.GoogleRedirectUri);
+        }
+    }
+
+    /// <summary>
+    /// Removes Google OAuth credentials and disables Google login.
+    /// Use when the merchant wants to disconnect Google authentication entirely.
+    /// </summary>
+    public void ClearGoogleCredentials()
+    {
+        Auth = Auth.WithoutGoogleCredentials();
+    }
 }

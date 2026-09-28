@@ -5,6 +5,7 @@ namespace KromicCommerce.Application.Features.Auth.GoogleCallback;
 
 internal sealed class GoogleCallbackHandler(
     IApplicationDbContext db,
+    IBusinessSettingsService businessSettings,
     IGoogleAuthService googleAuth,
     IJwtService jwtService,
     IRefreshTokenService refreshTokenService,
@@ -16,13 +17,34 @@ internal sealed class GoogleCallbackHandler(
         GoogleCallbackCommand command,
         CancellationToken cancellationToken)
     {
-        // Validate Google ID token — never trust client-supplied identity
-        var identity = await googleAuth.ValidateIdTokenAsync(command.IdToken, cancellationToken);
+        // -----------------------------------------------------------------------
+        // Load Google credentials from the database — not from environment variables.
+        // This ensures credentials saved via Admin UI are used immediately.
+        // -----------------------------------------------------------------------
+        var settings = await businessSettings.GetAsync(cancellationToken);
+        var auth = settings?.Auth;
+
+        if (auth is null || !auth.IsGoogleOAuthConfigured)
+            return Result.Failure<TokenResponse>(
+                Error.Validation("AUTH_GOOGLE_NOT_CONFIGURED",
+                    "Google authentication is not configured for this store."));
+
+        if (!auth.GoogleOAuthEnabled)
+            return Result.Failure<TokenResponse>(
+                Error.Validation("AUTH_GOOGLE_DISABLED",
+                    "Google authentication is disabled."));
+
+        // Validate Google ID token against the DB-sourced Client ID
+        var identity = await googleAuth.ValidateIdTokenAsync(
+            command.IdToken, auth.GoogleClientId!, cancellationToken);
+
         if (identity is null)
             return Result.Failure<TokenResponse>(
                 Error.Unauthorized("AUTH_GOOGLE_INVALID", "Google authentication failed."));
 
+        // -----------------------------------------------------------------------
         // Look up existing external login by provider + subject (not email)
+        // -----------------------------------------------------------------------
         var externalLogin = await db.ExternalLogins
             .Include(el => el.User)
             .FirstOrDefaultAsync(
@@ -40,7 +62,7 @@ internal sealed class GoogleCallbackHandler(
         }
         else
         {
-            // Check if a local email account exists — link rather than duplicate
+            // Check if a local account exists with the same verified email — link rather than duplicate
             user = await db.Users
                 .FirstOrDefaultAsync(
                     u => u.NormalizedEmail == identity.Email.Trim().ToUpperInvariant(),
@@ -73,14 +95,15 @@ internal sealed class GoogleCallbackHandler(
         var rawToken = refreshTokenService.GenerateRawToken();
         var tokenHash = refreshTokenService.HashToken(rawToken);
         var expiresAt = DateTime.UtcNow.AddDays(opts.RefreshTokenExpiryDays);
-        db.RefreshTokens.Add(Domain.Identity.RefreshToken.Create(user.Id, tokenHash, expiresAt, command.DeviceHint));
+        db.RefreshTokens.Add(Domain.Identity.RefreshToken.Create(
+            user.Id, tokenHash, expiresAt, command.DeviceHint));
 
         await db.SaveChangesAsync(cancellationToken);
 
         var accessToken = jwtService.IssueAccessToken(
             user.Id, user.Email, user.Role.ToString(), user.TokenVersion);
 
-        logger.LogInformation("Google OAuth login: {UserId}", user.Id);
+        logger.LogInformation("Google OAuth login succeeded. UserId: {UserId}", user.Id);
 
         return Result.Success(new TokenResponse(
             AccessToken: accessToken,

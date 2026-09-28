@@ -3,8 +3,10 @@ namespace KromicCommerce.Domain.Store;
 /// <summary>
 /// Authentication options for this store deployment.
 /// Controls which auth methods customers may use.
-/// Provider credentials (Google ClientId/Secret, SMS API keys) stay in environment variables,
-/// not here — this entity only controls business-level feature flags and UX config.
+///
+/// Google OAuth credentials (ClientId, EncryptedClientSecret, RedirectUri) are stored
+/// here so they persist in the database alongside other business settings.
+/// The ClientSecret is stored encrypted — the domain never sees plaintext secrets.
 /// </summary>
 public sealed class StoreAuthSettings : ValueObject
 {
@@ -16,7 +18,10 @@ public sealed class StoreAuthSettings : ValueObject
         OtpExpiryMinutes = 10,
         OtpResendCooldownSeconds = 60,
         OtpMaxAttempts = 5,
-        SmsProvider = "Fast2SMS"
+        SmsProvider = "Fast2SMS",
+        GoogleClientId = null,
+        EncryptedGoogleClientSecret = null,
+        GoogleRedirectUri = null
     };
 
     public bool GoogleOAuthEnabled { get; private set; }
@@ -32,14 +37,39 @@ public sealed class StoreAuthSettings : ValueObject
     /// <summary>Maximum verification attempts before an OTP is invalidated. Default: 5.</summary>
     public int OtpMaxAttempts { get; private set; }
 
-    /// <summary>
-    /// Active SMS provider name key. Must match a configured provider adapter.
-    /// E.g. "Fast2SMS", "Twilio".
-    /// </summary>
+    /// <summary>Active SMS provider name key. E.g. "Fast2SMS", "Twilio".</summary>
     public string SmsProvider { get; private set; } = "Fast2SMS";
 
     // -----------------------------------------------------------------------
-    // Factory / update
+    // Google OAuth credentials — stored in DB, not environment variables.
+    // ClientSecret is encrypted before storage; never returned by APIs.
+    // -----------------------------------------------------------------------
+
+    /// <summary>Google OAuth 2.0 Client ID (public identifier, safe to display masked).</summary>
+    public string? GoogleClientId { get; private set; }
+
+    /// <summary>
+    /// Google OAuth 2.0 Client Secret encrypted via ISecretProtectionService.
+    /// Never return this value through any API. Decrypt only at the point of use.
+    /// </summary>
+    public string? EncryptedGoogleClientSecret { get; private set; }
+
+    /// <summary>
+    /// The OAuth redirect URI registered in Google Cloud Console.
+    /// Must exactly match the value configured there.
+    /// </summary>
+    public string? GoogleRedirectUri { get; private set; }
+
+    /// <summary>
+    /// True when all required Google OAuth credentials are present in the database.
+    /// Does not imply the credentials are valid — only that they have been configured.
+    /// </summary>
+    public bool IsGoogleOAuthConfigured =>
+        !string.IsNullOrWhiteSpace(GoogleClientId) &&
+        !string.IsNullOrWhiteSpace(EncryptedGoogleClientSecret);
+
+    // -----------------------------------------------------------------------
+    // Factory — used by UpdateAuthSettingsCommand (feature flags only)
     // -----------------------------------------------------------------------
 
     public static StoreAuthSettings Create(
@@ -49,7 +79,11 @@ public sealed class StoreAuthSettings : ValueObject
         int otpExpiryMinutes,
         int otpResendCooldownSeconds,
         int otpMaxAttempts,
-        string smsProvider)
+        string smsProvider,
+        // Carry existing credentials through unchanged when only flags change
+        string? googleClientId = null,
+        string? encryptedGoogleClientSecret = null,
+        string? googleRedirectUri = null)
     {
         if (otpExpiryMinutes < 1)
             throw new ArgumentException("OTP expiry must be at least 1 minute.", nameof(otpExpiryMinutes));
@@ -68,9 +102,47 @@ public sealed class StoreAuthSettings : ValueObject
             OtpExpiryMinutes = otpExpiryMinutes,
             OtpResendCooldownSeconds = otpResendCooldownSeconds,
             OtpMaxAttempts = otpMaxAttempts,
-            SmsProvider = smsProvider.Trim()
+            SmsProvider = smsProvider.Trim(),
+            GoogleClientId = googleClientId,
+            EncryptedGoogleClientSecret = encryptedGoogleClientSecret,
+            GoogleRedirectUri = googleRedirectUri
         };
     }
+
+    /// <summary>Creates a new instance with updated Google credentials, preserving all other fields.</summary>
+    internal StoreAuthSettings WithGoogleCredentials(
+        string clientId,
+        string encryptedClientSecret,
+        string? redirectUri)
+        => new()
+        {
+            GoogleOAuthEnabled = GoogleOAuthEnabled,
+            EmailPasswordEnabled = EmailPasswordEnabled,
+            MobileOtpEnabled = MobileOtpEnabled,
+            OtpExpiryMinutes = OtpExpiryMinutes,
+            OtpResendCooldownSeconds = OtpResendCooldownSeconds,
+            OtpMaxAttempts = OtpMaxAttempts,
+            SmsProvider = SmsProvider,
+            GoogleClientId = clientId.Trim(),
+            EncryptedGoogleClientSecret = encryptedClientSecret,
+            GoogleRedirectUri = redirectUri?.Trim()
+        };
+
+    /// <summary>Creates a new instance with Google credentials cleared, preserving all other fields.</summary>
+    internal StoreAuthSettings WithoutGoogleCredentials()
+        => new()
+        {
+            GoogleOAuthEnabled = false, // disable when credentials are cleared
+            EmailPasswordEnabled = EmailPasswordEnabled,
+            MobileOtpEnabled = MobileOtpEnabled,
+            OtpExpiryMinutes = OtpExpiryMinutes,
+            OtpResendCooldownSeconds = OtpResendCooldownSeconds,
+            OtpMaxAttempts = OtpMaxAttempts,
+            SmsProvider = SmsProvider,
+            GoogleClientId = null,
+            EncryptedGoogleClientSecret = null,
+            GoogleRedirectUri = null
+        };
 
     protected override IEnumerable<object?> GetEqualityComponents()
     {
@@ -81,5 +153,8 @@ public sealed class StoreAuthSettings : ValueObject
         yield return OtpResendCooldownSeconds;
         yield return OtpMaxAttempts;
         yield return SmsProvider;
+        yield return GoogleClientId;
+        yield return EncryptedGoogleClientSecret;
+        yield return GoogleRedirectUri;
     }
 }

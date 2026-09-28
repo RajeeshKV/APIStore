@@ -33,12 +33,16 @@ public sealed class OrderDomainTests
         order.PaidAt.Should().NotBeNull();
     }
 
+    /// <summary>
+    /// PendingPayment → Confirmed is now valid for COD orders (skips PaymentProcessing).
+    /// This was changed when fixing the COD checkout flow.
+    /// </summary>
     [Fact]
-    public void Cannot_confirm_directly_from_PendingPayment()
+    public void Can_confirm_directly_from_PendingPayment_for_COD()
     {
         var order = CreateTestOrder(); // PendingPayment
-        var act = () => order.Confirm(); // skips PaymentProcessing
-        act.Should().Throw<InvalidOperationException>();
+        order.Confirm();              // direct confirm — valid for COD
+        order.Status.Should().Be(OrderStatus.Confirmed);
     }
 
     [Fact]

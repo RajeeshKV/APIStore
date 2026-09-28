@@ -73,19 +73,35 @@ internal sealed class GetSmsIntegrationStatusHandler(IOptions<SmsStatusOptions> 
 }
 
 internal sealed class GetGoogleIntegrationStatusHandler(
-    IOptions<GoogleOAuthStatusOptions> opts,
+    IBusinessSettingsService settingsService,
     ISecretProtectionService secretService)
     : IQueryHandler<GetGoogleIntegrationStatusQuery, IntegrationStatusResponse>
 {
-    public Task<Result<IntegrationStatusResponse>> Handle(
+    public async Task<Result<IntegrationStatusResponse>> Handle(
         GetGoogleIntegrationStatusQuery query, CancellationToken ct)
     {
-        var o = opts.Value;
-        var status = new IntegrationStatusResponse(
-            "GoogleOAuth", o.Enabled, o.IsConfigured,
-            string.IsNullOrWhiteSpace(o.ClientId) ? null : secretService.Mask(o.ClientId, 6),
-            HasSecret: o.HasClientSecret);
+        // Read from the authoritative persistent store, not from environment-variable-backed IOptions.
+        // This ensures configuration saved via the Admin UI is immediately reflected here.
+        var settings = await settingsService.GetAsync(ct);
+        var auth = settings?.Auth;
 
-        return Task.FromResult(Result.Success(status));
+        var isConfigured = auth?.IsGoogleOAuthConfigured ?? false;
+        var isEnabled    = auth?.GoogleOAuthEnabled ?? false;
+
+        var publicFields = new Dictionary<string, string?>();
+        if (!string.IsNullOrWhiteSpace(auth?.GoogleRedirectUri))
+            publicFields["redirectUri"] = auth.GoogleRedirectUri;
+
+        var status = new IntegrationStatusResponse(
+            "GoogleOAuth",
+            Enabled: isEnabled,
+            IsConfigured: isConfigured,
+            MaskedKeyId: string.IsNullOrWhiteSpace(auth?.GoogleClientId)
+                ? null
+                : secretService.Mask(auth.GoogleClientId, 6),
+            HasSecret: !string.IsNullOrWhiteSpace(auth?.EncryptedGoogleClientSecret),
+            PublicFields: publicFields.Count > 0 ? publicFields! : null);
+
+        return Result.Success(status);
     }
 }

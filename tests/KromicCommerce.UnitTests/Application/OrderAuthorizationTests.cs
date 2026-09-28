@@ -46,6 +46,7 @@ public sealed class OrderAuthorizationTests
         var order = BuildOrder(orderId, customerId);
         order.AddItem(BuildOrderItem(orderId));
         SetupOrdersQueryable([order]);
+        SetupEmptyProductImages();
 
         var handler = new GetMyOrderByIdHandler(_db.Object);
         var result = await handler.Handle(
@@ -125,5 +126,20 @@ public sealed class OrderAuthorizationTests
         mock.As<IQueryable<OrderItem>>().Setup(m => m.ElementType).Returns(data.ElementType);
         mock.As<IQueryable<OrderItem>>().Setup(m => m.GetEnumerator()).Returns(data.GetEnumerator());
         _db.Setup(d => d.OrderItems).Returns(mock.Object);
+    }
+
+    private void SetupEmptyProductImages()
+    {
+        var data = new List<ProductImage>().AsQueryable();
+        var mock = new Mock<Microsoft.EntityFrameworkCore.DbSet<ProductImage>>();
+        mock.As<IAsyncEnumerable<ProductImage>>()
+            .Setup(m => m.GetAsyncEnumerator(It.IsAny<CancellationToken>()))
+            .Returns(new TestAsyncEnumerator<ProductImage>(data.GetEnumerator()));
+        mock.As<IQueryable<ProductImage>>().Setup(m => m.Provider)
+            .Returns(new TestAsyncQueryProvider<ProductImage>(data.Provider));
+        mock.As<IQueryable<ProductImage>>().Setup(m => m.Expression).Returns(data.Expression);
+        mock.As<IQueryable<ProductImage>>().Setup(m => m.ElementType).Returns(data.ElementType);
+        mock.As<IQueryable<ProductImage>>().Setup(m => m.GetEnumerator()).Returns(data.GetEnumerator());
+        _db.Setup(d => d.ProductImages).Returns(mock.Object);
     }
 }

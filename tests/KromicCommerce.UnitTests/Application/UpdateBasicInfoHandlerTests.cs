@@ -37,6 +37,7 @@ public sealed class UpdateBasicInfoHandlerTests
                 It.IsAny<object[]>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(settings);
         _db.Setup(d => d.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+        _svc.Setup(s => s.GetAsync(It.IsAny<CancellationToken>())).ReturnsAsync(settings);
 
         var result = await CreateHandler().Handle(
             new UpdateBasicInfoCommand("New Store", "Legal Inc", "https://example.com",

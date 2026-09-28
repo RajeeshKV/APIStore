@@ -57,23 +57,40 @@ internal sealed class UpdateRazorpayConfigHandler(
 
 internal sealed class UpdateGoogleOAuthConfigHandler(
     IApplicationDbContext db,
+    IBusinessSettingsService settingsService,
     ISecretProtectionService secrets,
     ILogger<UpdateGoogleOAuthConfigHandler> logger)
     : ICommandHandler<UpdateGoogleOAuthConfigCommand>
 {
     public async Task<Result> Handle(UpdateGoogleOAuthConfigCommand cmd, CancellationToken ct)
     {
-        var encryptedSecret = secrets.Protect(cmd.ClientSecret);
-        var payload = JsonSerializer.Serialize(new
-        {
-            cmd.Enabled,
-            cmd.ClientId,
-            ClientSecret = encryptedSecret,
-            cmd.RedirectUri,
-            IntegrationType = "GoogleOAuth"
-        });
+        var settings = await db.BusinessSettings
+            .FindAsync([BusinessSettings.SingletonId], ct);
 
-        db.OutboxEvents.Add(OutboxEvent.Create("IntegrationConfigUpdated", payload));
+        if (settings is null)
+            return Result.Failure(Error.NotFound(
+                "BUSINESS_SETTINGS_NOT_FOUND", "Business settings have not been initialised."));
+
+        // Encrypt the secret before it ever touches the database — never store plaintext
+        var encryptedSecret = secrets.Protect(cmd.ClientSecret);
+
+        // Persist to BusinessSettings — this is the authoritative configuration store.
+        // The status endpoint reads from here; the OAuth flow reads from here.
+        settings.UpdateGoogleCredentials(cmd.ClientId, encryptedSecret, cmd.RedirectUri, cmd.Enabled);
+
+        await db.SaveChangesAsync(ct);
+
+        // Invalidate the settings cache so the next read sees the new credentials immediately
+        settingsService.Invalidate();
+
+        // Optionally publish an event — purely for audit/observability, NOT as a config store
+        db.OutboxEvents.Add(OutboxEvent.Create("GoogleOAuthConfigurationUpdated",
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                cmd.Enabled,
+                ConfiguredAt = DateTime.UtcNow
+                // Never include ClientId, ClientSecret, or any credential in Outbox payload
+            })));
         await db.SaveChangesAsync(ct);
 
         logger.LogInformation("Google OAuth configuration updated. Enabled: {Enabled}", cmd.Enabled);

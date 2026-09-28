@@ -1,22 +1,32 @@
 using Google.Apis.Auth;
 using KromicCommerce.Application.Abstractions.Auth;
-using KromicCommerce.Infrastructure.Configuration;
 
 namespace KromicCommerce.Infrastructure.Auth;
 
-internal sealed class GoogleAuthService(
-    IOptions<GoogleOAuthOptions> options,
-    ILogger<GoogleAuthService> logger) : IGoogleAuthService
+/// <summary>
+/// Validates Google ID tokens using the official Google.Apis.Auth library.
+/// The clientId is supplied by the caller (loaded from BusinessSettings at runtime)
+/// rather than from environment-variable-backed IOptions, so credential changes
+/// made through the Admin UI are picked up immediately without a restart.
+/// </summary>
+internal sealed class GoogleAuthService(ILogger<GoogleAuthService> logger) : IGoogleAuthService
 {
     public async Task<GoogleIdentity?> ValidateIdTokenAsync(
         string idToken,
+        string clientId,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            logger.LogWarning("Google ID token validation skipped — ClientId not configured.");
+            return null;
+        }
+
         try
         {
             var settings = new GoogleJsonWebSignature.ValidationSettings
             {
-                Audience = [options.Value.ClientId]
+                Audience = [clientId]
             };
 
             var payload = await GoogleJsonWebSignature.ValidateAsync(idToken, settings);

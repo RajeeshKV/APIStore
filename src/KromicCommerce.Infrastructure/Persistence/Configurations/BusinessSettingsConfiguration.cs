@@ -130,6 +130,19 @@ internal sealed class BusinessSettingsConfiguration : IEntityTypeConfiguration<B
                 .IsRequired()
                 .HasMaxLength(100)
                 .HasDefaultValue("Fast2SMS");
+
+            // Google OAuth credentials — nullable, stored encrypted
+            a.Property(x => x.GoogleClientId)
+                .HasColumnName("auth_google_client_id")
+                .HasMaxLength(256);
+
+            a.Property(x => x.EncryptedGoogleClientSecret)
+                .HasColumnName("auth_google_client_secret_enc")
+                .HasMaxLength(1024);
+
+            a.Property(x => x.GoogleRedirectUri)
+                .HasColumnName("auth_google_redirect_uri")
+                .HasMaxLength(512);
         });
 
         // -----------------------------------------------------------------------
