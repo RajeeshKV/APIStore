@@ -15,4 +15,4 @@ public sealed record UpdateProductCommand(
     bool IsTaxable,
     string? MetaTitle,
     string? MetaDescription,
-    string? MetaKeywords) : ICommand;
+    string? MetaKeywords) : ICommand<ProductResponse>;

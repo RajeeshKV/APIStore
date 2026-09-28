@@ -45,12 +45,15 @@ public sealed class BrandsController(IMediator mediator) : ControllerBase
 
     [HttpPut("{id:guid}")]
     [Authorize(Policy = "AdminOnly")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(BrandResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateBrandRequest req, CancellationToken ct)
     {
         var result = await mediator.Send(
             new UpdateBrandCommand(id, req.Name, req.Slug, req.Description, req.WebsiteUrl, req.IsActive), ct);
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
     [HttpDelete("{id:guid}")]

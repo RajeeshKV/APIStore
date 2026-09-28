@@ -16,7 +16,18 @@ internal sealed class GetAdminSettingsHandler(IBusinessSettingsService settingsS
                 Error.NotFound("BUSINESS_SETTINGS_NOT_FOUND",
                     "Store configuration has not been set up yet."));
 
-        return Result.Success(new AdminBusinessSettingsResponse(
+        return Result.Success(AdminSettingsMapper.Map(s));
+    }
+}
+
+/// <summary>
+/// Shared mapping helper — reused by every settings update handler so the
+/// mapping logic lives in exactly one place.
+/// </summary>
+internal static class AdminSettingsMapper
+{
+    internal static AdminBusinessSettingsResponse Map(BusinessSettings s) =>
+        new(
             BusinessName: s.BusinessName,
             LegalName: s.LegalName,
             WebsiteUrl: s.WebsiteUrl,
@@ -60,6 +71,5 @@ internal sealed class GetAdminSettingsHandler(IBusinessSettingsService settingsS
                 s.Seo.MetaDescription,
                 s.Seo.MetaKeywords,
                 s.Seo.FaviconUrl,
-                s.Seo.OgImageUrl)));
-    }
+                s.Seo.OgImageUrl));
 }

@@ -46,9 +46,10 @@ internal sealed class AddProductImageHandler(IApplicationDbContext db, ICatalogC
 }
 
 internal sealed class ReorderProductImagesHandler(IApplicationDbContext db, ICatalogCacheService cache)
-    : ICommandHandler<ReorderProductImagesCommand>
+    : ICommandHandler<ReorderProductImagesCommand, IReadOnlyList<ProductImageDto>>
 {
-    public async Task<Result> Handle(ReorderProductImagesCommand cmd, CancellationToken cancellationToken)
+    public async Task<Result<IReadOnlyList<ProductImageDto>>> Handle(
+        ReorderProductImagesCommand cmd, CancellationToken cancellationToken)
     {
         var productSlug = await db.Products
             .Where(p => p.Id == cmd.ProductId)
@@ -60,20 +61,31 @@ internal sealed class ReorderProductImagesHandler(IApplicationDbContext db, ICat
             .ToListAsync(cancellationToken);
 
         if (images.Count == 0)
-            return Result.Failure(Error.NotFound("PRODUCT_NOT_FOUND", "Product not found or has no images."));
+            return Result.Failure<IReadOnlyList<ProductImageDto>>(
+                Error.NotFound("PRODUCT_NOT_FOUND", "Product not found or has no images."));
 
         foreach (var item in cmd.Items)
         {
             var image = images.FirstOrDefault(i => i.Id == item.ImageId);
             if (image is null)
-                return Result.Failure(Error.NotFound("IMAGE_NOT_FOUND", $"Image {item.ImageId} not found."));
+                return Result.Failure<IReadOnlyList<ProductImageDto>>(
+                    Error.NotFound("IMAGE_NOT_FOUND", $"Image {item.ImageId} not found."));
             image.UpdateSortOrder(item.SortOrder);
         }
 
         await db.SaveChangesAsync(cancellationToken);
         cache.InvalidateProduct(cmd.ProductId);
         if (productSlug is not null) cache.InvalidateStorefrontProduct(productSlug);
-        return Result.Success();
+
+        IReadOnlyList<ProductImageDto> result = images
+            .OrderBy(i => i.SortOrder)
+            .Select(i => new ProductImageDto(i.Id,
+                new MediaAssetDto(i.Asset.PublicId, i.Asset.SecureUrl, i.Asset.Format,
+                    i.Asset.Width, i.Asset.Height, i.Asset.AltText),
+                i.SortOrder, i.IsPrimary))
+            .ToList();
+
+        return Result.Success(result);
     }
 }
 

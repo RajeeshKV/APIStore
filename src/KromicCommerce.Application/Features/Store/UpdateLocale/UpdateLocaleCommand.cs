@@ -4,4 +4,4 @@ public sealed record UpdateLocaleCommand(
     string CountryCode,
     string CurrencyCode,
     string TimeZoneId,
-    string Culture) : ICommand;
+    string Culture) : ICommand<AdminBusinessSettingsResponse>;

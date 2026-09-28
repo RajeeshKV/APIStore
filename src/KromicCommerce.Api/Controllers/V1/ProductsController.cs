@@ -76,7 +76,10 @@ public sealed class ProductsController(IMediator mediator) : ControllerBase
 
     [HttpPut("{id:guid}")]
     [Authorize(Policy = "AdminOnly")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProductResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateProductRequest req, CancellationToken ct)
     {
         var result = await mediator.Send(new UpdateProductCommand(
@@ -84,7 +87,7 @@ public sealed class ProductsController(IMediator mediator) : ControllerBase
             req.Description, req.ShortDescription, req.CategoryId, req.BrandId,
             req.IsFeatured, req.IsTaxable,
             req.MetaTitle, req.MetaDescription, req.MetaKeywords), ct);
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
     [HttpPost("{id:guid}/publish")]
@@ -173,7 +176,7 @@ public sealed class ProductsController(IMediator mediator) : ControllerBase
     /// </summary>
     [HttpPut("{productId:guid}/variants/{variantId:guid}")]
     [Authorize(Policy = "AdminOnly")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(VariantResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -186,7 +189,7 @@ public sealed class ProductsController(IMediator mediator) : ControllerBase
         var result = await mediator.Send(
             new UpdateVariantCommand(productId, variantId, req.Sku, req.PriceOverride,
                 req.SortOrder, req.IsActive, req.AttributeValueIds), ct);
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
     /// <summary>

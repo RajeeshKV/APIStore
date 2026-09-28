@@ -7,4 +7,4 @@ public sealed record UpdateDeliverySettingsCommand(
     decimal CodExtraFee,
     int ProcessingDays,
     int MinDeliveryDays,
-    int MaxDeliveryDays) : ICommand;
+    int MaxDeliveryDays) : ICommand<AdminBusinessSettingsResponse>;

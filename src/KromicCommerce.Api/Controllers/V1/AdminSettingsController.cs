@@ -15,6 +15,8 @@ namespace KromicCommerce.Api.Controllers.V1;
 /// <summary>
 /// Admin-only business settings management.
 /// All endpoints require the AdminOnly policy — server-side enforcement.
+/// Every mutation returns the full updated AdminBusinessSettingsResponse so the
+/// admin UI can reflect the confirmed saved state without a follow-up GET.
 /// </summary>
 [ApiController]
 [ApiVersion("1.0")]
@@ -39,12 +41,12 @@ public sealed class AdminSettingsController(IMediator mediator) : ControllerBase
     }
 
     // -----------------------------------------------------------------------
-    // Mutations
+    // Mutations — all return the full updated AdminBusinessSettingsResponse
     // -----------------------------------------------------------------------
 
     /// <summary>Update business name, contact info, and social links.</summary>
     [HttpPut("basic")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(AdminBusinessSettingsResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateBasicInfo(
@@ -57,12 +59,12 @@ public sealed class AdminSettingsController(IMediator mediator) : ControllerBase
             request.FacebookUrl, request.InstagramUrl, request.TwitterUrl, request.YoutubeUrl),
             cancellationToken);
 
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
     /// <summary>Update country, currency, timezone, and culture.</summary>
     [HttpPut("locale")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(AdminBusinessSettingsResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> UpdateLocale(
         [FromBody] UpdateLocaleRequest request,
@@ -73,12 +75,12 @@ public sealed class AdminSettingsController(IMediator mediator) : ControllerBase
                 request.TimeZoneId, request.Culture),
             cancellationToken);
 
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
     /// <summary>Update delivery fees, COD, and estimated delivery days.</summary>
     [HttpPut("delivery")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(AdminBusinessSettingsResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> UpdateDelivery(
         [FromBody] UpdateDeliverySettingsRequest request,
@@ -90,12 +92,12 @@ public sealed class AdminSettingsController(IMediator mediator) : ControllerBase
             request.ProcessingDays, request.MinDeliveryDays, request.MaxDeliveryDays),
             cancellationToken);
 
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
     /// <summary>Update auth methods and OTP configuration.</summary>
     [HttpPut("auth")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(AdminBusinessSettingsResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> UpdateAuth(
         [FromBody] UpdateAuthSettingsRequest request,
@@ -108,12 +110,12 @@ public sealed class AdminSettingsController(IMediator mediator) : ControllerBase
             request.SmsProvider),
             cancellationToken);
 
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
     /// <summary>Update email mode and sender identity.</summary>
     [HttpPut("email")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(AdminBusinessSettingsResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> UpdateEmail(
         [FromBody] UpdateEmailSettingsRequest request,
@@ -123,12 +125,12 @@ public sealed class AdminSettingsController(IMediator mediator) : ControllerBase
             new UpdateEmailSettingsCommand(request.Mode, request.SenderName, request.SenderEmail),
             cancellationToken);
 
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
     /// <summary>Update SEO metadata for the store.</summary>
     [HttpPut("seo")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(AdminBusinessSettingsResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> UpdateSeo(
         [FromBody] UpdateSeoSettingsRequest request,
@@ -139,12 +141,12 @@ public sealed class AdminSettingsController(IMediator mediator) : ControllerBase
             request.FaviconUrl, request.OgImageUrl),
             cancellationToken);
 
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
     /// <summary>Open or close the store with an optional closure message.</summary>
     [HttpPut("status")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(AdminBusinessSettingsResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> SetStatus(
         [FromBody] SetStoreOpenRequest request,
@@ -154,6 +156,6 @@ public sealed class AdminSettingsController(IMediator mediator) : ControllerBase
             new SetStoreOpenCommand(request.IsOpen, request.ClosureMessage),
             cancellationToken);
 
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 }

@@ -30,15 +30,15 @@ internal sealed class GetAdminOrdersHandler(IApplicationDbContext db)
             q = q.Where(o => o.Status == req.Status.Value);
 
         if (req.FromDate.HasValue) q = q.Where(o => o.CreatedAtUtc >= req.FromDate.Value);
-        if (req.ToDate.HasValue) q = q.Where(o => o.CreatedAtUtc <= req.ToDate.Value);
+        if (req.ToDate.HasValue)   q = q.Where(o => o.CreatedAtUtc <= req.ToDate.Value);
 
         var total = await q.CountAsync(ct);
         var desc = !string.Equals(req.SortDirection, "asc", StringComparison.OrdinalIgnoreCase);
         q = req.SortBy?.ToLower() switch
         {
             "grand_total" => desc ? q.OrderByDescending(o => o.GrandTotal) : q.OrderBy(o => o.GrandTotal),
-            "status" => desc ? q.OrderByDescending(o => o.Status) : q.OrderBy(o => o.Status),
-            _ => desc ? q.OrderByDescending(o => o.CreatedAtUtc) : q.OrderBy(o => o.CreatedAtUtc)
+            "status"      => desc ? q.OrderByDescending(o => o.Status)     : q.OrderBy(o => o.Status),
+            _             => desc ? q.OrderByDescending(o => o.CreatedAtUtc) : q.OrderBy(o => o.CreatedAtUtc)
         };
 
         var orders = await q.Skip((page - 1) * pageSize).Take(pageSize)
@@ -68,6 +68,7 @@ internal sealed class GetAdminOrderByIdHandler(IApplicationDbContext db)
         if (order is null)
             return Result.Failure<OrderResponse>(Error.NotFound("ORDER_NOT_FOUND", "Order not found."));
 
-        return Result.Success(GetMyOrderByIdHandler.MapToResponse(order));
+        var imageMap = await GetMyOrderByIdHandler.LoadImageMapAsync(db, order.Items, ct);
+        return Result.Success(GetMyOrderByIdHandler.MapToResponse(order, imageMap));
     }
 }

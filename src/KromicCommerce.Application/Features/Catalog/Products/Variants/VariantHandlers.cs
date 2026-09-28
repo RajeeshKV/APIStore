@@ -65,19 +65,19 @@ internal sealed class CreateVariantHandler(IApplicationDbContext db, ICatalogCac
 }
 
 internal sealed class UpdateVariantHandler(IApplicationDbContext db, ICatalogCacheService cache)
-    : ICommandHandler<UpdateVariantCommand>
+    : ICommandHandler<UpdateVariantCommand, VariantResponse>
 {
-    public async Task<Result> Handle(UpdateVariantCommand cmd, CancellationToken ct)
+    public async Task<Result<VariantResponse>> Handle(UpdateVariantCommand cmd, CancellationToken ct)
     {
         var variant = await db.ProductVariants
             .FirstOrDefaultAsync(v => v.Id == cmd.VariantId && v.ProductId == cmd.ProductId, ct);
         if (variant is null)
-            return Result.Failure(Error.NotFound("VARIANT_NOT_FOUND", "Variant not found."));
+            return Result.Failure<VariantResponse>(Error.NotFound("VARIANT_NOT_FOUND", "Variant not found."));
 
         // SKU uniqueness (exclude self)
         if (cmd.Sku is not null &&
             await db.ProductVariants.AnyAsync(v => v.Sku == cmd.Sku && v.Id != cmd.VariantId, ct))
-            return Result.Failure(Error.Conflict("VARIANT_SKU_TAKEN", $"SKU '{cmd.Sku}' is already in use."));
+            return Result.Failure<VariantResponse>(Error.Conflict("VARIANT_SKU_TAKEN", $"SKU '{cmd.Sku}' is already in use."));
 
         // Attribute-value validation
         if (cmd.AttributeValueIds?.Count > 0)
@@ -85,12 +85,12 @@ internal sealed class UpdateVariantHandler(IApplicationDbContext db, ICatalogCac
             var attrValidation = await VariantAttributeHelper.ValidateAttributeValues(
                 db, cmd.ProductId, cmd.AttributeValueIds, cmd.VariantId, ct);
             if (attrValidation is not null)
-                return Result.Failure(attrValidation);
+                return Result.Failure<VariantResponse>(attrValidation);
 
             var dupCheck = await VariantAttributeHelper.CheckDuplicateCombination(
                 db, cmd.ProductId, cmd.VariantId, cmd.AttributeValueIds, ct);
             if (dupCheck is not null)
-                return Result.Failure(dupCheck);
+                return Result.Failure<VariantResponse>(dupCheck);
         }
 
         variant.Update(cmd.Sku, cmd.PriceOverride, cmd.SortOrder);
@@ -112,7 +112,15 @@ internal sealed class UpdateVariantHandler(IApplicationDbContext db, ICatalogCac
             if (product.IsFeatured) cache.InvalidateStorefrontFeatured();
         }
 
-        return Result.Success();
+        var inventoryItem = await db.InventoryItems
+            .Where(i => i.VariantId == cmd.VariantId)
+            .FirstOrDefaultAsync(ct);
+        var availableStock = inventoryItem?.Available;
+
+        return Result.Success(new VariantResponse(
+            variant.Id, variant.Sku, variant.PriceOverride,
+            variant.SortOrder, variant.IsActive, variant.AttributeValueIds,
+            AvailableStock: availableStock));
     }
 }
 

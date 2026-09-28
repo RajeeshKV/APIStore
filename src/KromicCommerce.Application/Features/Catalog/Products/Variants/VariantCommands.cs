@@ -14,6 +14,6 @@ public sealed record UpdateVariantCommand(
     decimal? PriceOverride,
     int SortOrder,
     bool IsActive,
-    List<Guid>? AttributeValueIds) : ICommand;
+    List<Guid>? AttributeValueIds) : ICommand<VariantResponse>;
 
 public sealed record DeleteVariantCommand(Guid ProductId, Guid VariantId) : ICommand;

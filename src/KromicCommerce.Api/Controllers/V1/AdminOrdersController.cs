@@ -35,7 +35,7 @@ public sealed class AdminOrdersController(IMediator mediator) : ControllerBase
     }
 
     [HttpPut("{id:guid}/status")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(OrderResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> UpdateStatus(
@@ -43,6 +43,6 @@ public sealed class AdminOrdersController(IMediator mediator) : ControllerBase
     {
         var result = await mediator.Send(new UpdateOrderStatusCommand(
             id, request.Status, request.TrackingNumber, request.TrackingProvider, request.Reason), ct);
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 }

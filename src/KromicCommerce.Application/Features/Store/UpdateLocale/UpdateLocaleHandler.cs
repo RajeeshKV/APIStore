@@ -1,12 +1,14 @@
+using KromicCommerce.Application.Features.Store.GetAdminSettings;
+
 namespace KromicCommerce.Application.Features.Store.UpdateLocale;
 
 internal sealed class UpdateLocaleHandler(
     IApplicationDbContext db,
     IBusinessSettingsService settingsService,
     ILogger<UpdateLocaleHandler> logger)
-    : ICommandHandler<UpdateLocaleCommand>
+    : ICommandHandler<UpdateLocaleCommand, AdminBusinessSettingsResponse>
 {
-    public async Task<Result> Handle(
+    public async Task<Result<AdminBusinessSettingsResponse>> Handle(
         UpdateLocaleCommand command,
         CancellationToken cancellationToken)
     {
@@ -14,21 +16,19 @@ internal sealed class UpdateLocaleHandler(
             .FindAsync([BusinessSettings.SingletonId], cancellationToken);
 
         if (settings is null)
-            return Result.Failure(Error.NotFound(
+            return Result.Failure<AdminBusinessSettingsResponse>(Error.NotFound(
                 "BUSINESS_SETTINGS_NOT_FOUND", "Business settings have not been initialised."));
 
         settings.UpdateLocale(
-            command.CountryCode,
-            command.CurrencyCode,
-            command.TimeZoneId,
-            command.Culture);
+            command.CountryCode, command.CurrencyCode,
+            command.TimeZoneId, command.Culture);
 
         await db.SaveChangesAsync(cancellationToken);
         settingsService.Invalidate();
-
         logger.LogInformation("BusinessSettings locale updated to {Country}/{Currency}.",
             command.CountryCode, command.CurrencyCode);
 
-        return Result.Success();
+        var updated = await settingsService.GetAsync(cancellationToken);
+        return Result.Success(AdminSettingsMapper.Map(updated!));
     }
 }

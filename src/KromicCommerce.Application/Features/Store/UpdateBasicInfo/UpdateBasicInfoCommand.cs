@@ -10,4 +10,4 @@ public sealed record UpdateBasicInfoCommand(
     string? FacebookUrl,
     string? InstagramUrl,
     string? TwitterUrl,
-    string? YoutubeUrl) : ICommand;
+    string? YoutubeUrl) : ICommand<AdminBusinessSettingsResponse>;

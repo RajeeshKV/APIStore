@@ -9,4 +9,6 @@ public sealed record OrderItemResponse(
     string? Sku,
     decimal UnitPrice,
     int Quantity,
-    decimal LineTotal);
+    decimal LineTotal,
+    /// <summary>Primary product image URL at the time of the order. Null if no image exists.</summary>
+    string? PrimaryImageUrl);

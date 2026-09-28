@@ -47,14 +47,15 @@ public sealed class CategoriesController(IMediator mediator) : ControllerBase
 
     [HttpPut("{id:guid}")]
     [Authorize(Policy = "AdminOnly")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(CategoryResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateCategoryRequest req, CancellationToken ct)
     {
         var result = await mediator.Send(
             new UpdateCategoryCommand(id, req.Name, req.Slug, req.Description, req.ParentCategoryId, req.SortOrder, req.IsActive), ct);
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
     [HttpDelete("{id:guid}")]

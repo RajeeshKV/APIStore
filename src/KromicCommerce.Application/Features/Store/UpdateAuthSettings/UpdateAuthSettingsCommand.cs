@@ -7,4 +7,4 @@ public sealed record UpdateAuthSettingsCommand(
     int OtpExpiryMinutes,
     int OtpResendCooldownSeconds,
     int OtpMaxAttempts,
-    string SmsProvider) : ICommand;
+    string SmsProvider) : ICommand<AdminBusinessSettingsResponse>;

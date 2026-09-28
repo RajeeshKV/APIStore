@@ -41,10 +41,40 @@ internal sealed class GetMyOrderByIdHandler(IApplicationDbContext db)
         if (order is null)
             return Result.Failure<OrderResponse>(Error.NotFound("ORDER_NOT_FOUND", "Order not found."));
 
-        return Result.Success(MapToResponse(order));
+        var imageMap = await LoadImageMapAsync(db, order.Items, ct);
+        return Result.Success(MapToResponse(order, imageMap));
     }
 
-    internal static OrderResponse MapToResponse(Order o) =>
+    /// <summary>
+    /// Loads the primary image URL for each product referenced by the order items.
+    /// Single query — no N+1.
+    /// </summary>
+    internal static async Task<Dictionary<Guid, string?>> LoadImageMapAsync(
+        IApplicationDbContext db,
+        IReadOnlyList<OrderItem> items,
+        CancellationToken ct)
+    {
+        var productIds = items.Select(i => i.ProductId).Distinct().ToList();
+        if (productIds.Count == 0) return [];
+
+        // Fetch only the primary (or first by sortOrder) image per product
+        var images = await db.ProductImages
+            .AsNoTracking()
+            .Where(i => productIds.Contains(i.ProductId))
+            .Select(i => new { i.ProductId, i.Asset.SecureUrl, i.IsPrimary, i.SortOrder })
+            .ToListAsync(ct);
+
+        return productIds.ToDictionary(
+            pid => pid,
+            pid =>
+            {
+                var productImages = images.Where(i => i.ProductId == pid).ToList();
+                return (productImages.FirstOrDefault(i => i.IsPrimary)
+                    ?? productImages.OrderBy(i => i.SortOrder).FirstOrDefault())?.SecureUrl;
+            });
+    }
+
+    internal static OrderResponse MapToResponse(Order o, Dictionary<Guid, string?> imageMap) =>
         new(o.Id, o.OrderNumber, o.Status, o.PaymentMethod,
             o.Subtotal, o.ShippingAmount, o.DiscountAmount, o.TaxAmount, o.GrandTotal, o.CurrencyCode,
             new ShippingAddressDto(
@@ -54,7 +84,8 @@ internal sealed class GetMyOrderByIdHandler(IApplicationDbContext db)
                 o.ShippingAddress.PostalCode, o.ShippingAddress.Country),
             o.Items.Select(i => new OrderItemResponse(
                 i.Id, i.ProductId, i.VariantId, i.ProductName,
-                i.VariantDescription, i.Sku, i.UnitPrice, i.Quantity, i.LineTotal))
+                i.VariantDescription, i.Sku, i.UnitPrice, i.Quantity, i.LineTotal,
+                imageMap.GetValueOrDefault(i.ProductId)))
                 .ToList(),
             o.TrackingNumber, o.TrackingProvider, o.CancellationReason,
             o.PaidAt, o.ShippedAt, o.DeliveredAt, o.CancelledAt,

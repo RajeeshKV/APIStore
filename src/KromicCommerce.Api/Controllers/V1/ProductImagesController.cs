@@ -60,14 +60,15 @@ public sealed class ProductImagesController(
 
     /// <summary>Reorder product images.</summary>
     [HttpPut("reorder")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(IReadOnlyList<ProductImageDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Reorder(
         Guid productId,
         [FromBody] ReorderImagesRequest req,
         CancellationToken ct)
     {
         var result = await mediator.Send(new ReorderProductImagesCommand(productId, req.Items), ct);
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
     /// <summary>Delete a product image. Also removes it from Cloudinary.</summary>

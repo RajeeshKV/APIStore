@@ -5,4 +5,4 @@ public sealed record UpdateSeoSettingsCommand(
     string? MetaDescription,
     string? MetaKeywords,
     string? FaviconUrl,
-    string? OgImageUrl) : ICommand;
+    string? OgImageUrl) : ICommand<AdminBusinessSettingsResponse>;

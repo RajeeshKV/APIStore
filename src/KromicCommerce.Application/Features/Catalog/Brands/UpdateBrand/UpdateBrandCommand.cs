@@ -6,4 +6,4 @@ public sealed record UpdateBrandCommand(
     string Slug,
     string? Description,
     string? WebsiteUrl,
-    bool IsActive) : ICommand;
+    bool IsActive) : ICommand<BrandResponse>;

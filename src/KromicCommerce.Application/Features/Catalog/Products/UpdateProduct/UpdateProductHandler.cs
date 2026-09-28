@@ -5,20 +5,20 @@ namespace KromicCommerce.Application.Features.Catalog.Products.UpdateProduct;
 internal sealed class UpdateProductHandler(
     IApplicationDbContext db,
     ICatalogCacheService cache)
-    : ICommandHandler<UpdateProductCommand>
+    : ICommandHandler<UpdateProductCommand, ProductResponse>
 {
-    public async Task<Result> Handle(UpdateProductCommand command, CancellationToken cancellationToken)
+    public async Task<Result<ProductResponse>> Handle(UpdateProductCommand command, CancellationToken cancellationToken)
     {
         var product = await db.Products.FindAsync([command.Id], cancellationToken);
         if (product is null)
-            return Result.Failure(Error.NotFound("PRODUCT_NOT_FOUND", "Product not found."));
+            return Result.Failure<ProductResponse>(Error.NotFound("PRODUCT_NOT_FOUND", "Product not found."));
 
         if (await db.Products.AnyAsync(p => p.Slug == command.Slug && p.Id != command.Id, cancellationToken))
-            return Result.Failure(Error.Conflict("PRODUCT_SLUG_TAKEN", $"Slug '{command.Slug}' is already in use."));
+            return Result.Failure<ProductResponse>(Error.Conflict("PRODUCT_SLUG_TAKEN", $"Slug '{command.Slug}' is already in use."));
 
         if (command.Sku is not null
             && await db.Products.AnyAsync(p => p.Sku == command.Sku && p.Id != command.Id, cancellationToken))
-            return Result.Failure(Error.Conflict("PRODUCT_SKU_TAKEN", $"SKU '{command.Sku}' is already in use."));
+            return Result.Failure<ProductResponse>(Error.Conflict("PRODUCT_SKU_TAKEN", $"SKU '{command.Sku}' is already in use."));
 
         product.UpdateDetails(command.Name, command.Slug, command.Sku,
             command.Description, command.ShortDescription,
@@ -30,6 +30,14 @@ internal sealed class UpdateProductHandler(
         cache.InvalidateProduct(command.Id);
         cache.InvalidateStorefrontProduct(product.Slug);
         cache.InvalidateStorefrontFeatured();
-        return Result.Success();
+
+        // Reload with full includes for the response
+        var full = await db.Products.AsNoTracking()
+            .Include(x => x.Category).Include(x => x.Brand)
+            .Include(x => x.Images).Include(x => x.Attributes).ThenInclude(a => a.Values)
+            .Include(x => x.Variants)
+            .FirstAsync(x => x.Id == command.Id, cancellationToken);
+
+        return Result.Success(ProductMapper.MapToResponse(full));
     }
 }

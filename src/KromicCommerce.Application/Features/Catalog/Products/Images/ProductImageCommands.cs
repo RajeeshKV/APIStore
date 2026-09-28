@@ -12,7 +12,7 @@ public sealed record AddProductImageCommand(
 
 public sealed record ReorderProductImagesCommand(
     Guid ProductId,
-    IReadOnlyList<ImageSortOrderItem> Items) : ICommand;
+    IReadOnlyList<ImageSortOrderItem> Items) : ICommand<IReadOnlyList<ProductImageDto>>;
 
 public sealed record DeleteProductImageCommand(
     Guid ProductId,

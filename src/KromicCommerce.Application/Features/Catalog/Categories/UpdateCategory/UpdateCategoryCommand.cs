@@ -7,4 +7,4 @@ public sealed record UpdateCategoryCommand(
     string? Description,
     Guid? ParentCategoryId,
     int SortOrder,
-    bool IsActive) : ICommand;
+    bool IsActive) : ICommand<CategoryResponse>;
