@@ -147,5 +147,5 @@ internal sealed class VerifyPaymentHandler(
 
     private static PaymentResponse MapPayment(Payment p) =>
         new(p.Id, p.OrderId, p.Provider, p.ProviderPaymentId,
-            p.Amount, p.CurrencyCode, p.Status.ToString(), p.PaidAt, p.CreatedAtUtc);
+            p.Amount, p.CurrencyCode, p.Status, p.PaidAt, p.CreatedAtUtc);
 }

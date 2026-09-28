@@ -1,5 +1,7 @@
 using Asp.Versioning.ApiExplorer;
 using Microsoft.OpenApi.Models;
+using Swashbuckle.AspNetCore.SwaggerGen;
+using System.Text.Json.Serialization;
 
 namespace KromicCommerce.Api.Extensions;
 
@@ -18,6 +20,9 @@ internal static class SwaggerExtensions
                 Version = "v1",
                 Description = "Kromic Commerce — isolated-deployment e-commerce platform API."
             });
+
+            // Emit enum values as strings in the OpenAPI schema so the FE sees named values.
+            options.UseInlineDefinitionsForEnums();
 
             // Bearer token authentication scheme for Swagger UI
             options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme

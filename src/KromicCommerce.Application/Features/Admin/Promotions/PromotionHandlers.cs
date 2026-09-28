@@ -196,9 +196,9 @@ internal sealed class GetPromotionsHandler(IApplicationDbContext db)
         var skip = (query.Page - 1) * query.PageSize;
 
         var items = await q.Skip(skip).Take(query.PageSize).Select(p => new PromotionSummaryResponse(
-            p.Id, p.Name, p.CouponCode, p.DiscountType.ToString(),
+            p.Id, p.Name, p.CouponCode, p.DiscountType,
             p.DiscountValue, p.MaxDiscountAmount, p.IsActive, p.UsageCount,
-            p.UsageLimit, p.StartsAt, p.ExpiresAt, p.Applicability.ToString(),
+            p.UsageLimit, p.StartsAt, p.ExpiresAt, p.Applicability,
             p.CreatedAtUtc)).ToListAsync(ct);
 
         return Result.Success(new PagedResponse<PromotionSummaryResponse>(
@@ -233,9 +233,9 @@ file static class PromotionHandlers
 {
     public static PromotionDetailResponse MapDetail(Promotion p) => new(
         p.Id, p.Name, p.Description, p.CouponCode,
-        p.DiscountType.ToString(), p.DiscountValue, p.MaxDiscountAmount,
+        p.DiscountType, p.DiscountValue, p.MaxDiscountAmount,
         p.MinimumOrderAmount, p.UsageLimit, p.PerCustomerUsageLimit,
-        p.StartsAt, p.ExpiresAt, p.Applicability.ToString(),
+        p.StartsAt, p.ExpiresAt, p.Applicability,
         p.IsFirstOrderOnly, p.IsActive, p.UsageCount,
         p.Products.Select(pp => pp.ProductId).ToList(),
         p.Categories.Select(pc => pc.CategoryId).ToList(),

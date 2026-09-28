@@ -52,7 +52,7 @@ internal sealed class GetAdminSettingsHandler(IBusinessSettingsService settingsS
                 s.Auth.OtpMaxAttempts,
                 s.Auth.SmsProvider),
             Email: new EmailSettingsDto(
-                s.Email.Mode.ToString(),
+                s.Email.Mode,
                 s.Email.SenderName,
                 s.Email.SenderEmail),
             Seo: new SeoSettingsDto(

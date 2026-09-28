@@ -4,7 +4,6 @@ using KromicCommerce.Application.Abstractions.Auth;
 using KromicCommerce.Application.Features.Auth.SendOtp;
 using KromicCommerce.Application.Features.Auth.VerifyOtp;
 using KromicCommerce.Contracts.Auth;
-using KromicCommerce.Domain.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 
 namespace KromicCommerce.Api.Controllers.V1;
@@ -24,11 +23,8 @@ public sealed class OtpController(IMediator mediator, ICurrentUserService curren
         [FromBody] OtpSendRequest request,
         CancellationToken cancellationToken)
     {
-        if (!Enum.TryParse<OtpPurpose>(request.Purpose, ignoreCase: true, out var purpose))
-            return BadRequest(new { error = new { code = "INVALID_PURPOSE", message = "Invalid OTP purpose." } });
-
         var result = await mediator.Send(
-            new SendOtpCommand(request.PhoneNumber, purpose, currentUser.UserId),
+            new SendOtpCommand(request.PhoneNumber, request.Purpose, currentUser.UserId),
             cancellationToken);
 
         return result.IsSuccess
@@ -45,11 +41,8 @@ public sealed class OtpController(IMediator mediator, ICurrentUserService curren
         [FromBody] OtpVerifyRequest request,
         CancellationToken cancellationToken)
     {
-        if (!Enum.TryParse<OtpPurpose>(request.Purpose, ignoreCase: true, out var purpose))
-            return BadRequest(new { error = new { code = "INVALID_PURPOSE", message = "Invalid OTP purpose." } });
-
         var result = await mediator.Send(
-            new VerifyOtpCommand(request.PhoneNumber, request.Otp, purpose, currentUser.UserId),
+            new VerifyOtpCommand(request.PhoneNumber, request.Otp, request.Purpose, currentUser.UserId),
             cancellationToken);
 
         return result.IsSuccess

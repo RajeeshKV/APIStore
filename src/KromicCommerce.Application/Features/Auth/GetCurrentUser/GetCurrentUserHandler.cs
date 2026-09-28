@@ -24,7 +24,7 @@ internal sealed class GetCurrentUserHandler(IApplicationDbContext db)
             LastName: user.LastName,
             PhoneNumber: user.PhoneNumber,
             PhoneNumberVerified: user.PhoneNumberVerified,
-            Role: user.Role.ToString(),
+            Role: user.Role,
             IsActive: user.IsActive,
             EmailVerifiedAt: user.EmailVerifiedAt,
             LastLoginAt: user.LastLoginAt));

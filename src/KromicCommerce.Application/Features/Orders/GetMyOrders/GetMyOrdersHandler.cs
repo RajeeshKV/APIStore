@@ -19,7 +19,7 @@ internal sealed class GetMyOrdersHandler(IApplicationDbContext db)
             .ToListAsync(ct);
 
         var mapped = orders.Select(o => new OrderSummaryResponse(
-            o.Id, o.OrderNumber, o.Status.ToString(), o.PaymentMethod.ToString(),
+            o.Id, o.OrderNumber, o.Status, o.PaymentMethod,
             o.GrandTotal, o.CurrencyCode,
             o.Items.Count,
             o.CreatedAtUtc)).ToList();
@@ -45,7 +45,7 @@ internal sealed class GetMyOrderByIdHandler(IApplicationDbContext db)
     }
 
     internal static OrderResponse MapToResponse(Order o) =>
-        new(o.Id, o.OrderNumber, o.Status.ToString(), o.PaymentMethod.ToString(),
+        new(o.Id, o.OrderNumber, o.Status, o.PaymentMethod,
             o.Subtotal, o.ShippingAmount, o.DiscountAmount, o.TaxAmount, o.GrandTotal, o.CurrencyCode,
             new ShippingAddressDto(
                 o.ShippingAddress.FullName, o.ShippingAddress.Phone,

@@ -26,7 +26,7 @@ public sealed class CreateProductHandlerTests
         var result = await CreateHandler().Handle(ValidCmd(), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        result.Value.Status.Should().Be(ProductStatus.Draft.ToString());
+        result.Value.Status.Should().Be(ProductStatus.Draft);
         result.Value.Price.Should().Be(99.99m);
         _cache.Verify(c => c.InvalidateProducts(), Times.Once);
     }

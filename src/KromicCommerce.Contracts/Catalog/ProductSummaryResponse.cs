@@ -1,3 +1,5 @@
+using KromicCommerce.Domain.Catalog;
+
 namespace KromicCommerce.Contracts.Catalog;
 
 /// <summary>
@@ -11,7 +13,7 @@ public sealed record ProductSummaryResponse(
     string? Sku,
     decimal Price,
     decimal? CompareAtPrice,
-    string Status,
+    ProductStatus Status,
     Guid? CategoryId,
     string? CategoryName,
     Guid? BrandId,

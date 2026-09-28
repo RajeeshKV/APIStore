@@ -26,9 +26,8 @@ internal sealed class GetAdminOrdersHandler(IApplicationDbContext db)
             var term = req.Search.Trim().ToLower();
             q = q.Where(o => o.OrderNumber.ToLower().Contains(term));
         }
-        if (!string.IsNullOrWhiteSpace(req.Status)
-            && Enum.TryParse<OrderStatus>(req.Status, out var status))
-            q = q.Where(o => o.Status == status);
+        if (req.Status.HasValue)
+            q = q.Where(o => o.Status == req.Status.Value);
 
         if (req.FromDate.HasValue) q = q.Where(o => o.CreatedAtUtc >= req.FromDate.Value);
         if (req.ToDate.HasValue) q = q.Where(o => o.CreatedAtUtc <= req.ToDate.Value);
@@ -47,7 +46,7 @@ internal sealed class GetAdminOrdersHandler(IApplicationDbContext db)
             .ToListAsync(ct);
 
         var mapped = orders.Select(o => new OrderSummaryResponse(
-            o.Id, o.OrderNumber, o.Status.ToString(), o.PaymentMethod.ToString(),
+            o.Id, o.OrderNumber, o.Status, o.PaymentMethod,
             o.GrandTotal, o.CurrencyCode,
             o.Items.Count,
             o.CreatedAtUtc)).ToList();

@@ -1,3 +1,5 @@
+using KromicCommerce.Domain.Identity;
+
 namespace KromicCommerce.Contracts.Auth;
 
 public sealed record MeResponse(
@@ -7,7 +9,7 @@ public sealed record MeResponse(
     string? LastName,
     string? PhoneNumber,
     bool PhoneNumberVerified,
-    string Role,
+    UserRole Role,
     bool IsActive,
     DateTime? EmailVerifiedAt,
     DateTime? LastLoginAt);

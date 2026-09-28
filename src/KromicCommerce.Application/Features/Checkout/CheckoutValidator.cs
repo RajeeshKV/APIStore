@@ -2,14 +2,11 @@ namespace KromicCommerce.Application.Features.Checkout;
 
 internal sealed class CheckoutValidator : AbstractValidator<CheckoutCommand>
 {
-    private static readonly string[] ValidPaymentMethods = ["Razorpay", "CashOnDelivery"];
-
     public CheckoutValidator()
     {
         RuleFor(x => x.PaymentMethod)
-            .NotEmpty()
-            .Must(m => ValidPaymentMethods.Contains(m))
-            .WithMessage("Payment method must be 'Razorpay' or 'CashOnDelivery'.");
+            .IsInEnum()
+            .WithMessage("Payment method must be a valid PaymentMethod value.");
 
         RuleFor(x => x.ShippingAddress.FullName).NotEmpty().MaximumLength(200);
         RuleFor(x => x.ShippingAddress.Phone)

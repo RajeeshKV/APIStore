@@ -1,3 +1,5 @@
+using KromicCommerce.Domain.Orders;
+
 namespace KromicCommerce.Contracts.Orders;
 
 /// <summary>
@@ -8,8 +10,8 @@ namespace KromicCommerce.Contracts.Orders;
 public sealed record CheckoutRequest(
     ShippingAddressDto ShippingAddress,
 
-    /// <summary>"Razorpay" or "CashOnDelivery". COD availability is validated server-side.</summary>
-    string PaymentMethod,
+    /// <summary>Payment method: Razorpay or CashOnDelivery. COD availability is validated server-side.</summary>
+    PaymentMethod PaymentMethod,
 
     /// <summary>Optional coupon code to apply a promotion discount. Validated server-side.</summary>
     string? CouponCode = null,

@@ -1,8 +1,10 @@
+using KromicCommerce.Domain.Store;
+
 namespace KromicCommerce.Contracts.Store;
 
 public sealed record StorePolicyResponse(
     Guid Id,
-    string PolicyType,
+    PolicyType PolicyType,
     string Title,
     string Content,
     bool IsPublished,

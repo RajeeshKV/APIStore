@@ -1,7 +1,9 @@
+using KromicCommerce.Domain.Store;
+
 namespace KromicCommerce.Contracts.Store;
 
 public sealed record UpsertStorePolicyRequest(
-    string PolicyType,
+    PolicyType PolicyType,
     string Title,
     string Content,
     bool IsPublished = false);

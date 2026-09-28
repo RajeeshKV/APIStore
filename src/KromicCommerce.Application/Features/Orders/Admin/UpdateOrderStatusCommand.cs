@@ -1,8 +1,10 @@
+using KromicCommerce.Domain.Orders;
+
 namespace KromicCommerce.Application.Features.Orders.Admin;
 
 public sealed record UpdateOrderStatusCommand(
     Guid OrderId,
-    string Status,
+    OrderStatus Status,
     string? TrackingNumber,
     string? TrackingProvider,
     string? Reason) : ICommand;

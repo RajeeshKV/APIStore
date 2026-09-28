@@ -1,10 +1,12 @@
+using KromicCommerce.Domain.Orders;
+
 namespace KromicCommerce.Contracts.Orders;
 
 public sealed record CheckoutResponse(
     Guid OrderId,
     string OrderNumber,
-    string OrderStatus,
-    string PaymentMethod,
+    OrderStatus OrderStatus,
+    PaymentMethod PaymentMethod,
 
     decimal Subtotal,
     decimal ShippingAmount,

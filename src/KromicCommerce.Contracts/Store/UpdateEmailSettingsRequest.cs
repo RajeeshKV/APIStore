@@ -1,6 +1,8 @@
+using KromicCommerce.Domain.Store;
+
 namespace KromicCommerce.Contracts.Store;
 
 public sealed record UpdateEmailSettingsRequest(
-    string Mode,
+    EmailMode Mode,
     string SenderName,
     string? SenderEmail);

@@ -2,7 +2,6 @@ using Asp.Versioning;
 using KromicCommerce.Application.Features.Admin.Promotions;
 using KromicCommerce.Contracts.Common;
 using KromicCommerce.Contracts.Promotions;
-using KromicCommerce.Domain.Promotions;
 using Microsoft.AspNetCore.Authorization;
 
 namespace KromicCommerce.Api.Controllers.V1;
@@ -56,16 +55,11 @@ public sealed class AdminPromotionsController(IMediator mediator) : ControllerBa
         [FromBody] CreatePromotionRequest request,
         CancellationToken cancellationToken)
     {
-        if (!Enum.TryParse<DiscountType>(request.DiscountType, out var discountType))
-            return BadRequest(new { error = $"Invalid DiscountType: {request.DiscountType}" });
-        if (!Enum.TryParse<PromotionApplicabilityType>(request.Applicability, out var applicability))
-            return BadRequest(new { error = $"Invalid Applicability: {request.Applicability}" });
-
         var result = await mediator.Send(new CreatePromotionCommand(
             request.Name, request.Description, request.CouponCode,
-            discountType, request.DiscountValue, request.MaxDiscountAmount,
+            request.DiscountType, request.DiscountValue, request.MaxDiscountAmount,
             request.MinimumOrderAmount, request.UsageLimit, request.PerCustomerUsageLimit,
-            request.StartsAt, request.ExpiresAt, applicability, request.IsFirstOrderOnly,
+            request.StartsAt, request.ExpiresAt, request.Applicability, request.IsFirstOrderOnly,
             request.TargetProductIds, request.TargetCategoryIds),
             cancellationToken);
 
@@ -83,16 +77,11 @@ public sealed class AdminPromotionsController(IMediator mediator) : ControllerBa
         [FromBody] UpdatePromotionRequest request,
         CancellationToken cancellationToken)
     {
-        if (!Enum.TryParse<DiscountType>(request.DiscountType, out var discountType))
-            return BadRequest(new { error = $"Invalid DiscountType: {request.DiscountType}" });
-        if (!Enum.TryParse<PromotionApplicabilityType>(request.Applicability, out var applicability))
-            return BadRequest(new { error = $"Invalid Applicability: {request.Applicability}" });
-
         var result = await mediator.Send(new UpdatePromotionCommand(
             id, request.Name, request.Description,
-            discountType, request.DiscountValue, request.MaxDiscountAmount,
+            request.DiscountType, request.DiscountValue, request.MaxDiscountAmount,
             request.MinimumOrderAmount, request.UsageLimit, request.PerCustomerUsageLimit,
-            request.StartsAt, request.ExpiresAt, applicability, request.IsFirstOrderOnly,
+            request.StartsAt, request.ExpiresAt, request.Applicability, request.IsFirstOrderOnly,
             request.TargetProductIds, request.TargetCategoryIds),
             cancellationToken);
 

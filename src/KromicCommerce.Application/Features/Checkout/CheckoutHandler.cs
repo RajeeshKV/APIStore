@@ -72,9 +72,7 @@ internal sealed class CheckoutHandler(
         // -----------------------------------------------------------------------
         // Payment method
         // -----------------------------------------------------------------------
-        if (!Enum.TryParse<PaymentMethod>(command.PaymentMethod, out var paymentMethod))
-            return Result.Failure<CheckoutResponse>(
-                Error.Validation("INVALID_PAYMENT_METHOD", $"Unknown payment method: {command.PaymentMethod}."));
+        var paymentMethod = command.PaymentMethod;
 
         if (paymentMethod == PaymentMethod.CashOnDelivery && !delivery.CodEnabled)
             return Result.Failure<CheckoutResponse>(
@@ -294,8 +292,8 @@ internal sealed class CheckoutHandler(
             order.Id, subtotal, discountAmount, taxAmount, shippingAmount, codFee, grandTotal, currency);
 
         return Result.Success(new CheckoutResponse(
-            order.Id, order.OrderNumber, order.Status.ToString(),
-            order.PaymentMethod.ToString(),
+            order.Id, order.OrderNumber, order.Status,
+            order.PaymentMethod,
             subtotal, shippingAmount, codFee, discountAmount, taxAmount,
             grandTotal, currency,
             appliedCoupon, providerOrderId,
@@ -365,8 +363,8 @@ internal sealed class CheckoutHandler(
     {
         var payment = await db.Payments.FirstOrDefaultAsync(p => p.OrderId == order.Id, ct);
         return Result.Success(new CheckoutResponse(
-            order.Id, order.OrderNumber, order.Status.ToString(),
-            order.PaymentMethod.ToString(),
+            order.Id, order.OrderNumber, order.Status,
+            order.PaymentMethod,
             order.Subtotal, order.ShippingAmount, order.CodFee,
             order.DiscountAmount, order.TaxAmount, order.GrandTotal,
             order.CurrencyCode,

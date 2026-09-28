@@ -17,11 +17,7 @@ internal sealed class UpdateEmailSettingsHandler(
             return Result.Failure(Error.NotFound(
                 "BUSINESS_SETTINGS_NOT_FOUND", "Business settings have not been initialised."));
 
-        if (!Enum.TryParse<EmailMode>(command.Mode, ignoreCase: false, out var mode))
-            return Result.Failure(Error.Validation(
-                "INVALID_EMAIL_MODE", $"Unknown email mode: {command.Mode}."));
-
-        var email = EmailSettings.Create(mode, command.SenderName, command.SenderEmail);
+        var email = EmailSettings.Create(command.Mode, command.SenderName, command.SenderEmail);
         settings.UpdateEmail(email);
         await db.SaveChangesAsync(cancellationToken);
         settingsService.Invalidate();

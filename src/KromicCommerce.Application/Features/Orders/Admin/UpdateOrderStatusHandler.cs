@@ -11,12 +11,9 @@ internal sealed class UpdateOrderStatusHandler(
         if (order is null)
             return Result.Failure(Error.NotFound("ORDER_NOT_FOUND", "Order not found."));
 
-        if (!Enum.TryParse<OrderStatus>(command.Status, out var newStatus))
-            return Result.Failure(Error.Validation("INVALID_STATUS", $"Unknown order status: {command.Status}."));
-
         try
         {
-            switch (newStatus)
+            switch (command.Status)
             {
                 case OrderStatus.Processing:  order.MarkProcessing(); break;
                 case OrderStatus.Packed:      order.MarkPacked(); break;
@@ -28,7 +25,7 @@ internal sealed class UpdateOrderStatusHandler(
                 case OrderStatus.Refunded:    order.MarkRefunded(); break;
                 default:
                     return Result.Failure(Error.Validation("INVALID_TRANSITION",
-                        $"Cannot manually transition to {newStatus}."));
+                        $"Cannot manually transition to {command.Status}."));
             }
         }
         catch (InvalidOperationException ex)
@@ -37,7 +34,7 @@ internal sealed class UpdateOrderStatusHandler(
         }
 
         await db.SaveChangesAsync(ct);
-        logger.LogInformation("Order {OrderId} transitioned to {Status}", command.OrderId, newStatus);
+        logger.LogInformation("Order {OrderId} transitioned to {Status}", command.OrderId, command.Status);
         return Result.Success();
     }
 }

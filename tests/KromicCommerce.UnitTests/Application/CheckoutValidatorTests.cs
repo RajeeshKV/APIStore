@@ -1,4 +1,5 @@
 using KromicCommerce.Application.Features.Checkout;
+using KromicCommerce.Domain.Orders;
 
 namespace KromicCommerce.UnitTests.Application;
 
@@ -11,7 +12,7 @@ public sealed class CheckoutValidatorTests
             "Mumbai", "Maharashtra", "400001", "IN");
 
     private static CheckoutCommand ValidCmd() =>
-        new(Guid.NewGuid(), ValidAddress(), "Razorpay", null, null);
+        new(Guid.NewGuid(), ValidAddress(), PaymentMethod.Razorpay, null, null);
 
     [Fact]
     public void Valid_command_passes()
@@ -20,19 +21,9 @@ public sealed class CheckoutValidatorTests
     }
 
     [Theory]
-    [InlineData("")]
-    [InlineData("Bitcoin")]
-    [InlineData("PayPal")]
-    public void Invalid_payment_method_fails(string method)
-    {
-        var result = _validator.Validate(ValidCmd() with { PaymentMethod = method });
-        result.IsValid.Should().BeFalse();
-    }
-
-    [Theory]
-    [InlineData("Razorpay")]
-    [InlineData("CashOnDelivery")]
-    public void Valid_payment_methods_pass(string method)
+    [InlineData(PaymentMethod.Razorpay)]
+    [InlineData(PaymentMethod.CashOnDelivery)]
+    public void Valid_payment_methods_pass(PaymentMethod method)
     {
         var result = _validator.Validate(ValidCmd() with { PaymentMethod = method });
         result.IsValid.Should().BeTrue();
@@ -75,7 +66,7 @@ public sealed class CheckoutValidatorTests
     [Fact]
     public void COD_payment_method_is_valid()
     {
-        var result = _validator.Validate(ValidCmd() with { PaymentMethod = "CashOnDelivery" });
+        var result = _validator.Validate(ValidCmd() with { PaymentMethod = PaymentMethod.CashOnDelivery });
         result.IsValid.Should().BeTrue();
     }
 }

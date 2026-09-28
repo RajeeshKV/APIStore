@@ -97,7 +97,7 @@ internal sealed class ValidateCouponHandler(
             result.IsValid,
             result.CouponCode,
             result.DiscountAmount,
-            result.DiscountType?.ToString(),
+            result.DiscountType,
             result.EligibleSubtotal,
             result.ErrorCode,
             result.ErrorMessage));

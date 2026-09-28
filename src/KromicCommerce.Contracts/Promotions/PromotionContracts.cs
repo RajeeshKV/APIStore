@@ -1,3 +1,5 @@
+using KromicCommerce.Domain.Promotions;
+
 namespace KromicCommerce.Contracts.Promotions;
 
 // -----------------------------------------------------------------------
@@ -8,7 +10,7 @@ public sealed record CreatePromotionRequest(
     string Name,
     string? Description,
     string CouponCode,
-    string DiscountType,           // "Percentage" | "FixedAmount"
+    DiscountType DiscountType,
     decimal DiscountValue,
     decimal? MaxDiscountAmount,
     decimal? MinimumOrderAmount,
@@ -16,7 +18,7 @@ public sealed record CreatePromotionRequest(
     int? PerCustomerUsageLimit,
     DateTime? StartsAt,
     DateTime? ExpiresAt,
-    string Applicability,          // "EntireOrder" | "SpecificProducts" | "SpecificCategories"
+    PromotionApplicabilityType Applicability,
     bool IsFirstOrderOnly,
     List<Guid>? TargetProductIds,
     List<Guid>? TargetCategoryIds);
@@ -24,7 +26,7 @@ public sealed record CreatePromotionRequest(
 public sealed record UpdatePromotionRequest(
     string Name,
     string? Description,
-    string DiscountType,
+    DiscountType DiscountType,
     decimal DiscountValue,
     decimal? MaxDiscountAmount,
     decimal? MinimumOrderAmount,
@@ -32,7 +34,7 @@ public sealed record UpdatePromotionRequest(
     int? PerCustomerUsageLimit,
     DateTime? StartsAt,
     DateTime? ExpiresAt,
-    string Applicability,
+    PromotionApplicabilityType Applicability,
     bool IsFirstOrderOnly,
     List<Guid>? TargetProductIds,
     List<Guid>? TargetCategoryIds);
@@ -45,7 +47,7 @@ public sealed record PromotionSummaryResponse(
     Guid Id,
     string Name,
     string CouponCode,
-    string DiscountType,
+    DiscountType DiscountType,
     decimal DiscountValue,
     decimal? MaxDiscountAmount,
     bool IsActive,
@@ -53,7 +55,7 @@ public sealed record PromotionSummaryResponse(
     int? UsageLimit,
     DateTime? StartsAt,
     DateTime? ExpiresAt,
-    string Applicability,
+    PromotionApplicabilityType Applicability,
     DateTime CreatedAtUtc);
 
 public sealed record PromotionDetailResponse(
@@ -61,7 +63,7 @@ public sealed record PromotionDetailResponse(
     string Name,
     string? Description,
     string CouponCode,
-    string DiscountType,
+    DiscountType DiscountType,
     decimal DiscountValue,
     decimal? MaxDiscountAmount,
     decimal? MinimumOrderAmount,
@@ -69,7 +71,7 @@ public sealed record PromotionDetailResponse(
     int? PerCustomerUsageLimit,
     DateTime? StartsAt,
     DateTime? ExpiresAt,
-    string Applicability,
+    PromotionApplicabilityType Applicability,
     bool IsFirstOrderOnly,
     bool IsActive,
     int UsageCount,
@@ -89,7 +91,7 @@ public sealed record CouponValidationResponse(
     bool IsValid,
     string? CouponCode,
     decimal DiscountAmount,
-    string? DiscountType,
+    DiscountType? DiscountType,
     decimal EligibleSubtotal,
     string? ErrorCode,
     string? ErrorMessage);

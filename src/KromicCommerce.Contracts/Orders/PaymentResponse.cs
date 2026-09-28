@@ -1,3 +1,5 @@
+using KromicCommerce.Domain.Orders;
+
 namespace KromicCommerce.Contracts.Orders;
 
 /// <summary>
@@ -14,6 +16,6 @@ public sealed record PaymentResponse(
 
     decimal Amount,
     string Currency,
-    string Status,
+    PaymentStatus Status,
     DateTime? PaidAt,
     DateTime CreatedAtUtc);

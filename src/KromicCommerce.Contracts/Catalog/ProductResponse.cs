@@ -1,3 +1,5 @@
+using KromicCommerce.Domain.Catalog;
+
 namespace KromicCommerce.Contracts.Catalog;
 
 /// <summary>Full product detail response including images, attributes, and variants.</summary>
@@ -10,7 +12,7 @@ public sealed record ProductResponse(
     string? ShortDescription,
     decimal Price,
     decimal? CompareAtPrice,
-    string Status,
+    ProductStatus Status,
     Guid? CategoryId,
     string? CategoryName,
     Guid? BrandId,

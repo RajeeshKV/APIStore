@@ -5,7 +5,7 @@ internal static class ProductMapper
 {
     internal static ProductResponse MapToResponse(Product p) =>
         new(p.Id, p.Name, p.Slug, p.Sku, p.Description, p.ShortDescription,
-            p.Price, p.CompareAtPrice, p.Status.ToString(),
+            p.Price, p.CompareAtPrice, p.Status,
             p.CategoryId, p.Category?.Name, p.BrandId, p.Brand?.Name,
             p.IsFeatured, p.IsTaxable,
             p.MetaTitle, p.MetaDescription, p.MetaKeywords,
@@ -22,7 +22,7 @@ internal static class ProductMapper
             p.CreatedAtUtc, p.UpdatedAtUtc);
 
     internal static ProductSummaryResponse MapToSummary(Product p, int? available = null) =>
-        new(p.Id, p.Name, p.Slug, p.Sku, p.Price, p.CompareAtPrice, p.Status.ToString(),
+        new(p.Id, p.Name, p.Slug, p.Sku, p.Price, p.CompareAtPrice, p.Status,
             p.CategoryId, p.Category?.Name, p.BrandId, p.Brand?.Name,
             p.IsFeatured,
             p.Images.OrderBy(i => i.SortOrder).FirstOrDefault(i => i.IsPrimary)?.Asset.SecureUrl
