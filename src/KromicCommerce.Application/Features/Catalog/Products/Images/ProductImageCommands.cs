@@ -17,3 +17,11 @@ public sealed record ReorderProductImagesCommand(
 public sealed record DeleteProductImageCommand(
     Guid ProductId,
     Guid ImageId) : ICommand;
+
+/// <summary>
+/// Sets one product image as the primary (hero) image.
+/// Atomically demotes the current primary and promotes the selected image.
+/// </summary>
+public sealed record SetPrimaryProductImageCommand(
+    Guid ProductId,
+    Guid ImageId) : ICommand<ProductImageDto>;
