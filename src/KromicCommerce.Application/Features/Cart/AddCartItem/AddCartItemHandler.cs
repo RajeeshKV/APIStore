@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using KromicCommerce.Application.Features.Cart.GetCart;
-using Microsoft.EntityFrameworkCore;
 
 namespace KromicCommerce.Application.Features.Cart.AddCartItem;
 
@@ -53,81 +52,46 @@ internal sealed class AddCartItemHandler(
                     $"Only {inventory.Available} unit(s) available."));
 
         // -----------------------------------------------------------------------
-        // Get or create cart — with retry on concurrency conflict.
-        //
-        // A DbUpdateConcurrencyException here means the cart or one of its items
-        // was modified concurrently (e.g. duplicate request, expired-cart cleanup,
-        // or a previous cancelled checkout clearing items). We reload and retry once.
+        // Get or create cart
+        // Concurrency conflicts (stale change tracker state) are handled
+        // centrally by ConcurrencyRetryBehavior in the MediatR pipeline.
         // -----------------------------------------------------------------------
-        const int maxAttempts = 2;
-        KromicCommerce.Domain.Cart.Cart? cart = null;
-
-        for (var attempt = 0; attempt < maxAttempts; attempt++)
-        {
-            // Reload cart on retry so the change tracker has a fresh snapshot
-            if (attempt > 0)
-            {
-                db.ChangeTracker.Clear();
-                logger.LogWarning(
-                    "Retrying AddCartItem after concurrency conflict. " +
-                    "Attempt {Attempt}. CustomerId: {CustomerId}",
-                    attempt + 1, command.CustomerId);
-            }
-
-            cart = await LoadOrCreateCartAsync(command, cancellationToken);
-
-            cart.AddItem(command.ProductId, command.VariantId, command.Quantity);
-
-            try
-            {
-                await db.SaveChangesAsync(cancellationToken);
-                break; // success
-            }
-            catch (DbUpdateConcurrencyException) when (attempt < maxAttempts - 1)
-            {
-                // Stale cart data — loop back and reload
-                continue;
-            }
-        }
-
-        logger.LogInformation(
-            "Cart item added. CartId: {CartId} ProductId: {ProductId} Qty: {Qty}",
-            cart!.Id, command.ProductId, command.Quantity);
-
-        // Return updated cart view
-        var cartResult = await mediator.Send(
-            new GetCartQuery(command.CustomerId, cart.AnonymousId), cancellationToken);
-        return cartResult;
-    }
-
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
-
-    private async Task<KromicCommerce.Domain.Cart.Cart> LoadOrCreateCartAsync(
-        AddCartItemCommand command, CancellationToken ct)
-    {
         KromicCommerce.Domain.Cart.Cart? cart = null;
 
         if (command.CustomerId.HasValue)
             cart = await db.Carts
                 .Include(c => c.Items)
                 .FirstOrDefaultAsync(
-                    c => c.CustomerId == command.CustomerId.Value && c.ExpiresAt > DateTime.UtcNow, ct);
+                    c => c.CustomerId == command.CustomerId.Value
+                         && c.ExpiresAt > DateTime.UtcNow,
+                    cancellationToken);
         else if (!string.IsNullOrWhiteSpace(command.AnonymousCartId))
             cart = await db.Carts
                 .Include(c => c.Items)
                 .FirstOrDefaultAsync(
-                    c => c.AnonymousId == command.AnonymousCartId && c.ExpiresAt > DateTime.UtcNow, ct);
+                    c => c.AnonymousId == command.AnonymousCartId
+                         && c.ExpiresAt > DateTime.UtcNow,
+                    cancellationToken);
 
-        if (cart is not null) return cart;
+        if (cart is null)
+        {
+            cart = command.CustomerId.HasValue
+                ? KromicCommerce.Domain.Cart.Cart.CreateForCustomer(command.CustomerId.Value)
+                : KromicCommerce.Domain.Cart.Cart.CreateAnonymous(GenerateAnonymousCartId());
+            db.Carts.Add(cart);
+        }
 
-        cart = command.CustomerId.HasValue
-            ? KromicCommerce.Domain.Cart.Cart.CreateForCustomer(command.CustomerId.Value)
-            : KromicCommerce.Domain.Cart.Cart.CreateAnonymous(GenerateAnonymousCartId());
+        cart.AddItem(command.ProductId, command.VariantId, command.Quantity);
+        await db.SaveChangesAsync(cancellationToken);
 
-        db.Carts.Add(cart);
-        return cart;
+        logger.LogInformation(
+            "Cart item added. CartId: {CartId} ProductId: {ProductId} Qty: {Qty}",
+            cart.Id, command.ProductId, command.Quantity);
+
+        // Return updated cart view
+        var cartResult = await mediator.Send(
+            new GetCartQuery(command.CustomerId, cart.AnonymousId), cancellationToken);
+        return cartResult;
     }
 
     private static string GenerateAnonymousCartId()
