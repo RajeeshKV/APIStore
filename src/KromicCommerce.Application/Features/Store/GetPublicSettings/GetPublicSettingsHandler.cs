@@ -59,5 +59,13 @@ internal sealed class GetPublicSettingsHandler(
                 s.Delivery.MaxDeliveryDays),
             Tracking: new TrackingSettingsDto(
                 tracking.GoogleAnalyticsMeasurementId,
-                tracking.MetaPixelId));
+                tracking.MetaPixelId),
+            Auth: new PublicAuthSettingsDto(
+                GoogleOAuthEnabled: s.Auth.GoogleOAuthEnabled,
+                // Only expose the Client ID when Google OAuth is enabled.
+                // It is a public identifier — safe for the browser Google Sign-In SDK.
+                // The encrypted Client Secret is NEVER included here.
+                GoogleClientId: s.Auth.GoogleOAuthEnabled ? s.Auth.GoogleClientId : null,
+                EmailPasswordEnabled: s.Auth.EmailPasswordEnabled,
+                MobileOtpEnabled: s.Auth.MobileOtpEnabled));
 }
