@@ -1,8 +1,19 @@
-using System.Security.Cryptography;
 using KromicCommerce.Application.Features.Cart.GetCart;
 
 namespace KromicCommerce.Application.Features.Cart.AddCartItem;
 
+/// <summary>
+/// Adds an item to the customer's cart using atomic PostgreSQL operations via
+/// IApplicationDbContext to prevent concurrency issues.
+///
+/// Concurrency strategy:
+///   - FindOrCreate*CartAsync: INSERT ON CONFLICT DO NOTHING → one active cart per session.
+///   - UpsertCartItemAsync: INSERT ON CONFLICT DO UPDATE Quantity += → atomic increment,
+///     no read-modify-write race, no lost updates, no duplicate rows.
+///   - InventoryItem loaded AsNoTracking: it has an xmin concurrency token. Tracking it
+///     would register the xmin snapshot and cause SaveChangesAsync to emit a spurious
+///     UPDATE that always fails with DbUpdateConcurrencyException.
+/// </summary>
 internal sealed class AddCartItemHandler(
     IApplicationDbContext db,
     IMediator mediator,
@@ -13,38 +24,41 @@ internal sealed class AddCartItemHandler(
         AddCartItemCommand command, CancellationToken cancellationToken)
     {
         // -----------------------------------------------------------------------
-        // Validate product server-side — never trust frontend
+        // Validate product — server is authoritative, never trust frontend
         // -----------------------------------------------------------------------
-        var product = await db.Products
-            .Include(p => p.Images)
-            .FirstOrDefaultAsync(
+        var productExists = await db.Products
+            .AsNoTracking()
+            .AnyAsync(
                 p => p.Id == command.ProductId && p.Status == ProductStatus.Active,
                 cancellationToken);
 
-        if (product is null)
+        if (!productExists)
             return Result.Failure<CartResponse>(
                 Error.NotFound("PRODUCT_NOT_FOUND", "Product not found or is unavailable."));
 
-        ProductVariant? variant = null;
         if (command.VariantId.HasValue)
         {
-            variant = await db.ProductVariants.FirstOrDefaultAsync(
-                v => v.Id == command.VariantId.Value
-                     && v.ProductId == command.ProductId
-                     && v.IsActive,
-                cancellationToken);
+            var variantExists = await db.ProductVariants
+                .AsNoTracking()
+                .AnyAsync(
+                    v => v.Id == command.VariantId.Value
+                         && v.ProductId == command.ProductId
+                         && v.IsActive,
+                    cancellationToken);
 
-            if (variant is null)
+            if (!variantExists)
                 return Result.Failure<CartResponse>(
                     Error.NotFound("VARIANT_NOT_FOUND", "Product variant not found or is unavailable."));
         }
 
         // -----------------------------------------------------------------------
-        // Validate inventory — server is authoritative
+        // Validate inventory — AsNoTracking: read-only, must not register xmin snapshot.
         // -----------------------------------------------------------------------
-        var inventory = await db.InventoryItems.FirstOrDefaultAsync(
-            inv => inv.ProductId == command.ProductId && inv.VariantId == command.VariantId,
-            cancellationToken);
+        var inventory = await db.InventoryItems
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                inv => inv.ProductId == command.ProductId && inv.VariantId == command.VariantId,
+                cancellationToken);
 
         if (inventory is not null && inventory.Available < command.Quantity)
             return Result.Failure<CartResponse>(
@@ -52,51 +66,34 @@ internal sealed class AddCartItemHandler(
                     $"Only {inventory.Available} unit(s) available."));
 
         // -----------------------------------------------------------------------
-        // Get or create cart
-        // Concurrency conflicts (stale change tracker state) are handled
-        // centrally by ConcurrencyRetryBehavior in the MediatR pipeline.
+        // Atomically find or create the cart, then upsert the item.
+        // Both operations use PostgreSQL ON CONFLICT to prevent any race condition.
         // -----------------------------------------------------------------------
-        KromicCommerce.Domain.Cart.Cart? cart = null;
+        Guid cartId;
+        string? anonymousId = command.AnonymousCartId;
 
         if (command.CustomerId.HasValue)
-            cart = await db.Carts
-                .Include(c => c.Items)
-                .FirstOrDefaultAsync(
-                    c => c.CustomerId == command.CustomerId.Value
-                         && c.ExpiresAt > DateTime.UtcNow,
-                    cancellationToken);
-        else if (!string.IsNullOrWhiteSpace(command.AnonymousCartId))
-            cart = await db.Carts
-                .Include(c => c.Items)
-                .FirstOrDefaultAsync(
-                    c => c.AnonymousId == command.AnonymousCartId
-                         && c.ExpiresAt > DateTime.UtcNow,
-                    cancellationToken);
-
-        if (cart is null)
         {
-            cart = command.CustomerId.HasValue
-                ? KromicCommerce.Domain.Cart.Cart.CreateForCustomer(command.CustomerId.Value)
-                : KromicCommerce.Domain.Cart.Cart.CreateAnonymous(GenerateAnonymousCartId());
-            db.Carts.Add(cart);
+            cartId = await db.FindOrCreateCustomerCartAsync(
+                command.CustomerId.Value, cancellationToken);
+        }
+        else
+        {
+            (cartId, anonymousId) = await db.FindOrCreateAnonymousCartAsync(
+                command.AnonymousCartId, cancellationToken);
         }
 
-        cart.AddItem(command.ProductId, command.VariantId, command.Quantity);
-        await db.SaveChangesAsync(cancellationToken);
+        await db.UpsertCartItemAsync(
+            cartId, command.ProductId, command.VariantId,
+            command.Quantity, cancellationToken);
 
         logger.LogInformation(
-            "Cart item added. CartId: {CartId} ProductId: {ProductId} Qty: {Qty}",
-            cart.Id, command.ProductId, command.Quantity);
+            "Cart item upserted. CartId: {CartId} ProductId: {ProductId} Qty: {Qty}",
+            cartId, command.ProductId, command.Quantity);
 
         // Return updated cart view
         var cartResult = await mediator.Send(
-            new GetCartQuery(command.CustomerId, cart.AnonymousId), cancellationToken);
+            new GetCartQuery(command.CustomerId, anonymousId), cancellationToken);
         return cartResult;
-    }
-
-    private static string GenerateAnonymousCartId()
-    {
-        var bytes = RandomNumberGenerator.GetBytes(32);
-        return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
     }
 }

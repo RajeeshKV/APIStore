@@ -124,4 +124,114 @@ public sealed class AppDbContext(
             }
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Cart atomic operations — implement IApplicationDbContext members
+    // Raw SQL keeps PostgreSQL ON CONFLICT semantics that EF Core cannot express.
+    // -----------------------------------------------------------------------
+
+    public async Task<Guid> FindOrCreateCustomerCartAsync(
+        Guid customerId,
+        CancellationToken cancellationToken = default)
+    {
+        // Look for an existing active cart first (no lock needed on the read)
+        var existingId = await Carts
+            .AsNoTracking()
+            .Where(c => c.CustomerId == customerId && c.ExpiresAt > DateTime.UtcNow)
+            .Select(c => (Guid?)c.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (existingId.HasValue) return existingId.Value;
+
+        // Create one atomically. ON CONFLICT DO NOTHING means if a concurrent
+        // request already inserted a row, this is a no-op and we SELECT theirs.
+        // The ix_carts_customer partial unique index enforces one row per customer.
+        var cartId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var expiresAt = now.AddDays(30);
+
+        await Database.ExecuteSqlRawAsync(
+            @"INSERT INTO carts (""Id"", ""CustomerId"", ""AnonymousId"", ""ExpiresAt"", ""CreatedAtUtc"", ""UpdatedAtUtc"")
+              VALUES ({0}, {1}, NULL, {2}, {3}, {3})
+              ON CONFLICT DO NOTHING",
+            cancellationToken, cartId, customerId, expiresAt, now);
+
+        return await Carts
+            .AsNoTracking()
+            .Where(c => c.CustomerId == customerId && c.ExpiresAt > DateTime.UtcNow)
+            .Select(c => c.Id)
+            .FirstAsync(cancellationToken);
+    }
+
+    public async Task<(Guid CartId, string AnonymousId)> FindOrCreateAnonymousCartAsync(
+        string? existingAnonymousId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!string.IsNullOrWhiteSpace(existingAnonymousId))
+        {
+            var existingId = await Carts
+                .AsNoTracking()
+                .Where(c => c.AnonymousId == existingAnonymousId && c.ExpiresAt > DateTime.UtcNow)
+                .Select(c => (Guid?)c.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (existingId.HasValue) return (existingId.Value, existingAnonymousId);
+        }
+
+        // Generate a new anonymous id and create the cart atomically
+        var newAnonId = GenerateAnonymousCartId();
+        var cartId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var expiresAt = now.AddDays(7);
+
+        await Database.ExecuteSqlRawAsync(
+            @"INSERT INTO carts (""Id"", ""CustomerId"", ""AnonymousId"", ""ExpiresAt"", ""CreatedAtUtc"", ""UpdatedAtUtc"")
+              VALUES ({0}, NULL, {1}, {2}, {3}, {3})
+              ON CONFLICT DO NOTHING",
+            cancellationToken, cartId, newAnonId, expiresAt, now);
+
+        var survivingId = await Carts
+            .AsNoTracking()
+            .Where(c => c.AnonymousId == newAnonId && c.ExpiresAt > DateTime.UtcNow)
+            .Select(c => c.Id)
+            .FirstAsync(cancellationToken);
+
+        return (survivingId, newAnonId);
+    }
+
+    public async Task UpsertCartItemAsync(
+        Guid cartId,
+        Guid productId,
+        Guid? variantId,
+        int quantity,
+        CancellationToken cancellationToken = default)
+    {
+        var itemId = Guid.NewGuid();
+        var addedAt = DateTime.UtcNow;
+
+        if (variantId.HasValue)
+        {
+            await Database.ExecuteSqlRawAsync(
+                @"INSERT INTO cart_items (""Id"", ""CartId"", ""ProductId"", ""VariantId"", ""Quantity"", ""AddedAt"")
+                  VALUES ({0}, {1}, {2}, {3}, {4}, {5})
+                  ON CONFLICT (""CartId"", ""ProductId"", ""VariantId"") WHERE ""VariantId"" IS NOT NULL
+                  DO UPDATE SET ""Quantity"" = cart_items.""Quantity"" + EXCLUDED.""Quantity""",
+                cancellationToken, itemId, cartId, productId, variantId.Value, quantity, addedAt);
+        }
+        else
+        {
+            await Database.ExecuteSqlRawAsync(
+                @"INSERT INTO cart_items (""Id"", ""CartId"", ""ProductId"", ""VariantId"", ""Quantity"", ""AddedAt"")
+                  VALUES ({0}, {1}, {2}, NULL, {3}, {4})
+                  ON CONFLICT (""CartId"", ""ProductId"", ""VariantId"")
+                  DO UPDATE SET ""Quantity"" = cart_items.""Quantity"" + EXCLUDED.""Quantity""",
+                cancellationToken, itemId, cartId, productId, quantity, addedAt);
+        }
+    }
+
+    private static string GenerateAnonymousCartId()
+    {
+        var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+        return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+    }
 }

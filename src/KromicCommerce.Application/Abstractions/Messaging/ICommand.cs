@@ -16,3 +16,17 @@ public interface ICommand : IRequest<Result>, IBaseCommand
 public interface ICommand<TResponse> : IRequest<Result<TResponse>>, IBaseCommand
 {
 }
+
+/// <summary>
+/// Opt-in marker for commands where it is semantically safe to automatically
+/// retry on <see cref="Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException"/>.
+///
+/// Only apply this to operations where re-running the handler against fresh
+/// database state always produces the correct outcome — e.g. cart mutations
+/// where the intent is "add quantity" regardless of concurrent state.
+///
+/// Do NOT apply to administrative writes (Product, Category, Brand, Settings)
+/// where a genuine stale-write conflict must be surfaced to the caller so
+/// they can reconcile.
+/// </summary>
+public interface IRetryableConcurrencyCommand : IBaseCommand { }

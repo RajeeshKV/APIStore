@@ -4,38 +4,40 @@ using Microsoft.EntityFrameworkCore;
 namespace KromicCommerce.Application.Behaviors;
 
 /// <summary>
-/// MediatR pipeline behavior that automatically retries command handlers on
-/// <see cref="DbUpdateConcurrencyException"/>.
+/// MediatR pipeline behavior that handles <see cref="DbUpdateConcurrencyException"/>
+/// in an operation-aware way.
 ///
-/// Why this exists:
-///   EF Core optimistic concurrency throws when a tracked row was modified
-///   or deleted between the time it was loaded and the time SaveChanges runs.
-///   This happens in two scenarios in this codebase:
+/// # Two categories of concurrency conflict
 ///
-///   1. InventoryItem xmin token — expected, prevents overselling.
-///      The checkout handler has its own dedicated retry loop for this.
-///      This behavior acts as a safety net for any handler that doesn't.
+/// ## 1. Retryable (opt-in via <see cref="IRetryableConcurrencyCommand"/>)
 ///
-///   2. Stale change-tracker state — a Cart, CartItem, or Order row is
-///      loaded, then deleted or updated concurrently (e.g. duplicate request,
-///      expired-cart cleanup, or a race between two requests).
+///   Operations where re-running the handler against fresh database state is
+///   semantically correct. Currently: cart mutations.
 ///
-/// Strategy:
-///   On <see cref="DbUpdateConcurrencyException"/> the change tracker is
-///   cleared so EF forgets all stale snapshots, then the handler is invoked
-///   again with the original request. The handler re-queries fresh data from
-///   the database. This is safe because:
-///     - All handlers are idempotent with respect to business rules.
-///     - The domain enforces invariants, so a retry with fresh state produces
-///       the correct outcome rather than a corrupt one.
+///   On conflict: clear the change tracker, wait briefly, re-invoke the
+///   handler up to <see cref="MaxRetries"/> times.
 ///
-///   After <see cref="MaxRetries"/> failed attempts the exception is converted
-///   to a typed Result.Failure (409 Conflict) so the FE receives a structured
-///   error instead of an unhandled 500.
+///   If all retries are exhausted the exception propagates to the global
+///   exception handler which converts it to a 409 CONCURRENCY_CONFLICT.
 ///
-/// Scope:
-///   Only applies to commands (mutations). Queries never write so they cannot
-///   produce concurrency conflicts; they are passed through unchanged.
+/// ## 2. Non-retryable (all other IBaseCommand implementations)
+///
+///   Administrative writes where a genuine stale-write conflict must be
+///   surfaced: Product, Category, Brand, Settings, Orders, etc.
+///
+///   On conflict: let the exception propagate immediately. The global
+///   exception handler converts it to a typed 409 CONCURRENCY_CONFLICT
+///   response. The caller must reload and reconcile.
+///
+///   This preserves optimistic concurrency semantics — we never silently
+///   overwrite a newer version written by another user/request.
+///
+/// # What this does NOT do
+///   - Does NOT blindly retry every command.
+///   - Does NOT retry business validation failures.
+///   - Does NOT retry authorization failures.
+///   - Does NOT remove xmin or RowVersion tokens.
+///   - Does NOT wrap the entire HTTP request.
 /// </summary>
 internal sealed class ConcurrencyRetryBehavior<TRequest, TResponse>(
     IApplicationDbContext db,
@@ -43,95 +45,71 @@ internal sealed class ConcurrencyRetryBehavior<TRequest, TResponse>(
     : IPipelineBehavior<TRequest, TResponse>
     where TRequest : notnull
 {
-    private const int MaxRetries = 3;
+    /// <summary>
+    /// Maximum number of retry attempts for retryable commands.
+    /// Kept intentionally small — if this is exceeded it indicates a
+    /// sustained hotspot that needs architectural attention, not more retries.
+    /// </summary>
+    private const int MaxRetries = 2;
 
     public async Task<TResponse> Handle(
         TRequest request,
         RequestHandlerDelegate<TResponse> next,
         CancellationToken cancellationToken)
     {
-        // Only intercept mutations — skip queries entirely.
+        // Only intercept commands (mutations). Queries pass straight through.
         if (request is not IBaseCommand)
             return await next();
 
-        var requestName = typeof(TRequest).Name;
+        var isRetryable = request is IRetryableConcurrencyCommand;
+        var requestName  = typeof(TRequest).Name;
 
         for (var attempt = 0; attempt <= MaxRetries; attempt++)
         {
             if (attempt > 0)
             {
-                // Clear all stale EF tracking state before re-running the handler.
-                // This forces the handler to re-query fresh data from the database.
+                // Clear ALL stale EF tracking state so the handler re-queries
+                // fresh rows from the database on the next iteration.
                 db.ChangeTracker.Clear();
 
+                // Linear back-off: 50 ms, 100 ms — keeps pressure off the DB
+                var delay = TimeSpan.FromMilliseconds(50 * attempt);
                 logger.LogWarning(
-                    "Concurrency conflict on {RequestName}. Clearing change tracker and retrying " +
-                    "(attempt {Attempt}/{Max}).",
-                    requestName, attempt, MaxRetries);
+                    "Concurrency conflict on {RequestName} (attempt {Attempt}/{Max}). " +
+                    "Clearing change tracker, waiting {DelayMs} ms, then retrying.",
+                    requestName, attempt, MaxRetries, delay.TotalMilliseconds);
 
-                // Brief back-off to reduce the chance of racing again immediately
-                await Task.Delay(TimeSpan.FromMilliseconds(50 * attempt), cancellationToken);
+                await Task.Delay(delay, cancellationToken);
             }
 
             try
             {
                 return await next();
             }
-            catch (DbUpdateConcurrencyException ex) when (attempt < MaxRetries)
+            catch (DbUpdateConcurrencyException ex) when (isRetryable && attempt < MaxRetries)
             {
-                // Log and loop — the stale entries will be cleared at the top of the next iteration
+                // Retryable operation — log and loop; tracker cleared at top of next iteration
                 logger.LogWarning(ex,
-                    "DbUpdateConcurrencyException on {RequestName} (attempt {Attempt}/{Max}). Will retry.",
+                    "Retryable concurrency conflict on {RequestName} (attempt {Attempt}/{Max}).",
                     requestName, attempt + 1, MaxRetries);
             }
-            catch (DbUpdateConcurrencyException ex)
+            catch (DbUpdateConcurrencyException)
             {
-                // All retries exhausted — convert to a typed Result failure
-                logger.LogError(ex,
-                    "DbUpdateConcurrencyException on {RequestName} after {Max} retries. " +
-                    "Returning conflict error.",
-                    requestName, MaxRetries);
-
-                return BuildConflictResult(
-                    "CONCURRENCY_CONFLICT",
-                    "The resource was modified by another request. Please refresh and try again.");
+                // Either:
+                //   a) Non-retryable command — propagate immediately so the caller is informed.
+                //   b) Retryable command — all retries exhausted.
+                // In both cases let the exception bubble to GlobalExceptionMiddleware,
+                // which converts it to a standardized 409 CONCURRENCY_CONFLICT response.
+                logger.LogError(
+                    "Unresolved concurrency conflict on {RequestName} " +
+                    "(retryable={IsRetryable}, attempt={Attempt}/{Max}). Propagating.",
+                    requestName, isRetryable, attempt + 1, MaxRetries);
+                throw;
             }
         }
 
-        // Unreachable — the loop always returns or throws above.
-        // Included to satisfy the compiler.
-        throw new InvalidOperationException("ConcurrencyRetryBehavior exited retry loop unexpectedly.");
-    }
-
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
-
-    /// <summary>
-    /// Builds a typed <see cref="Result"/> or <see cref="Result{T}"/> conflict failure
-    /// without knowing the concrete TResponse at compile time.
-    /// Uses the same reflection pattern as <see cref="ValidationBehavior{TRequest,TResponse}"/>.
-    /// </summary>
-    private static TResponse BuildConflictResult(string code, string description)
-    {
-        var error = Error.Conflict(code, description);
-
-        if (typeof(TResponse) == typeof(Result))
-            return (TResponse)(object)Result.Failure(error);
-
-        var resultType = typeof(TResponse);
-        if (resultType.IsGenericType && resultType.GetGenericTypeDefinition() == typeof(Result<>))
-        {
-            var valueType = resultType.GetGenericArguments()[0];
-            var failureMethod = typeof(Result)
-                .GetMethod(nameof(Result.Failure), 1, [typeof(Error)])!
-                .MakeGenericMethod(valueType);
-            return (TResponse)failureMethod.Invoke(null, [error])!;
-        }
-
-        // Handler doesn't return Result — let the exception propagate as before
-        throw new DbUpdateConcurrencyException(
-            $"Concurrency conflict on {typeof(TRequest).Name} after {MaxRetries} retries " +
-            $"and TResponse {typeof(TResponse).Name} is not a Result type.");
+        // Unreachable — loop always returns or throws. Satisfies compiler.
+        throw new InvalidOperationException(
+            $"{nameof(ConcurrencyRetryBehavior<TRequest, TResponse>)} exited retry loop unexpectedly.");
     }
 }

@@ -39,6 +39,7 @@ internal sealed class CartItemConfiguration : IEntityTypeConfiguration<KromicCom
         builder.Property(i => i.AddedAt).IsRequired();
 
         builder.HasIndex(i => new { i.CartId, i.ProductId, i.VariantId })
+            .IsUnique()
             .HasDatabaseName("ix_cart_items_cart_product_variant");
     }
 }

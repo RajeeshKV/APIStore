@@ -5,4 +5,4 @@ public sealed record AddCartItemCommand(
     string? AnonymousCartId,
     Guid ProductId,
     Guid? VariantId,
-    int Quantity) : ICommand<CartResponse>;
+    int Quantity) : ICommand<CartResponse>, IRetryableConcurrencyCommand;

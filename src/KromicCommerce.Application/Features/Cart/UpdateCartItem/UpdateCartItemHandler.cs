@@ -18,10 +18,12 @@ internal sealed class UpdateCartItemHandler(
         if (item is null)
             return Result.Failure<CartResponse>(Error.NotFound("CART_ITEM_NOT_FOUND", "Cart item not found."));
 
-        // Server-side inventory check
-        var inventory = await db.InventoryItems.FirstOrDefaultAsync(
-            inv => inv.ProductId == item.ProductId && inv.VariantId == item.VariantId,
-            cancellationToken);
+        // Server-side inventory check — AsNoTracking: read-only, must not register xmin snapshot
+        var inventory = await db.InventoryItems
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                inv => inv.ProductId == item.ProductId && inv.VariantId == item.VariantId,
+                cancellationToken);
         if (inventory is not null && inventory.Available < command.Quantity)
             return Result.Failure<CartResponse>(
                 Error.Conflict("INSUFFICIENT_INVENTORY", $"Only {inventory.Available} unit(s) available."));

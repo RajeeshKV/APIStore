@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 
 namespace KromicCommerce.Api.Middleware;
 
@@ -23,6 +24,28 @@ internal sealed class GlobalExceptionMiddleware(
         try
         {
             await next(context);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            // Unresolved optimistic concurrency conflict after retry exhaustion
+            // (or a non-retryable conflict that was propagated immediately).
+            // Return 409 Conflict with a standardized body — never a 500.
+            var traceId = Activity.Current?.Id ?? context.TraceIdentifier;
+            logger.LogWarning(ex,
+                "Concurrency conflict reached global handler. TraceId: {TraceId} Path: {Path}",
+                traceId, context.Request.Path);
+
+            context.Response.ContentType = "application/json";
+            context.Response.StatusCode  = StatusCodes.Status409Conflict;
+
+            var body = new ErrorResponse(
+                Success: false,
+                Error: new ErrorDetail(
+                    Code:    "CONCURRENCY_CONFLICT",
+                    Message: "The resource was modified by another request. Please refresh and try again."),
+                TraceId: traceId);
+
+            await context.Response.WriteAsync(JsonSerializer.Serialize(body, JsonOptions));
         }
         catch (Exception ex)
         {

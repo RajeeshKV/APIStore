@@ -4,4 +4,4 @@ public sealed record UpdateCartItemCommand(
     Guid? CustomerId,
     string? AnonymousCartId,
     Guid CartItemId,
-    int Quantity) : ICommand<CartResponse>;
+    int Quantity) : ICommand<CartResponse>, IRetryableConcurrencyCommand;

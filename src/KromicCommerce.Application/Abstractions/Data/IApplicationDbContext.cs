@@ -72,4 +72,43 @@ public interface IApplicationDbContext
     DbSet<PromotionUsage> PromotionUsages { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    // -----------------------------------------------------------------------
+    // Cart atomic operations
+    // Raw SQL is required for PostgreSQL ON CONFLICT upserts that prevent
+    // lost updates and duplicate rows under high concurrency. These methods
+    // live here so Application handlers stay free of relational EF extensions.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Atomically finds an existing active cart for the customer or creates one.
+    /// Uses INSERT ... ON CONFLICT DO NOTHING to guarantee exactly one active
+    /// cart per customer even when concurrent requests race through the
+    /// "no cart found" branch simultaneously.
+    /// Returns the Id of the surviving cart row.
+    /// </summary>
+    Task<Guid> FindOrCreateCustomerCartAsync(
+        Guid customerId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Atomically finds an existing active cart for the anonymous session or creates one.
+    /// Returns the Id of the surviving cart row and the anonymous session id used.
+    /// </summary>
+    Task<(Guid CartId, string AnonymousId)> FindOrCreateAnonymousCartAsync(
+        string? existingAnonymousId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Atomically upserts a cart item using INSERT ... ON CONFLICT DO UPDATE.
+    /// If the item already exists the quantity is incremented atomically —
+    /// no read-modify-write race, no lost updates.
+    /// Relies on the unique index ix_cart_items_cart_product_variant (NULLS NOT DISTINCT).
+    /// </summary>
+    Task UpsertCartItemAsync(
+        Guid cartId,
+        Guid productId,
+        Guid? variantId,
+        int quantity,
+        CancellationToken cancellationToken = default);
 }
