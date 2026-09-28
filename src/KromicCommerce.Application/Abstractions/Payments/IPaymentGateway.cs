@@ -35,6 +35,17 @@ public interface IPaymentGateway
     WebhookVerificationResult? VerifyWebhook(
         string rawPayload,
         string signature);
+
+    /// <summary>
+    /// Initiates a full refund for a previously captured payment.
+    /// Called by the admin cancel flow when the order has a paid Razorpay payment.
+    /// Speed is "normal" by default — refunds appear in 5-7 business days.
+    /// </summary>
+    Task<RefundResult> RefundAsync(
+        string providerPaymentId,
+        decimal amount,
+        string notes,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record CreatePaymentOrderResult(
@@ -50,3 +61,8 @@ public sealed record WebhookVerificationResult(
     bool IsPaymentSucceeded,
     bool IsPaymentFailed,
     string? FailureReason);
+
+public sealed record RefundResult(
+    bool Success,
+    string? ProviderRefundId,
+    string? ErrorMessage);

@@ -150,4 +150,49 @@ internal sealed class RazorpayPaymentGateway(
             return null;
         }
     }
+
+    public async Task<RefundResult> RefundAsync(
+        string providerPaymentId,
+        decimal amount,
+        string notes,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var opts = options.Value;
+            var client = new RazorpayClient(opts.KeyId, opts.KeySecret);
+            var amountInPaise = (int)Math.Round(amount * 100);
+
+            var refundOptions = new Dictionary<string, object>
+            {
+                ["amount"] = amountInPaise,
+                ["speed"] = "normal",
+                ["notes"] = new Dictionary<string, string>
+                {
+                    ["reason"] = notes
+                }
+            };
+
+            var refund = await Task.Run(
+                () =>
+                {
+                    var payment = client.Payment.Fetch(providerPaymentId);
+                    return payment.Refund(refundOptions);
+                },
+                cancellationToken);
+
+            var refundId = (string)(refund["id"]?.ToString() ?? string.Empty);
+            logger.LogInformation(
+                "Razorpay refund initiated. PaymentId: {PaymentId} RefundId: {RefundId} Amount: {Amount}",
+                providerPaymentId, refundId, amount);
+
+            return new RefundResult(true, refundId, null);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex,
+                "Razorpay refund failed for PaymentId: {PaymentId}", providerPaymentId);
+            return new RefundResult(false, null, ex.Message);
+        }
+    }
 }

@@ -35,7 +35,11 @@ internal sealed class GetPublicPoliciesHandler(IApplicationDbContext db, IMemory
             .ToListAsync(ct);
 
         IReadOnlyList<StorePolicyResponse> result = policies.Select(PolicyMapper.Map).ToList();
-        cache.Set(CacheKey, result, TimeSpan.FromMinutes(30));
+        cache.Set(CacheKey, result, new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(30),
+            Size = 1
+        });
         return Result.Success(result);
     }
 }

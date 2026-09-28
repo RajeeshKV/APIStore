@@ -103,7 +103,7 @@ public sealed class Order : AuditableEntity
 
     private static readonly Dictionary<OrderStatus, HashSet<OrderStatus>> AllowedTransitions = new()
     {
-        [OrderStatus.PendingPayment]    = [OrderStatus.PaymentProcessing, OrderStatus.Cancelled, OrderStatus.Failed],
+        [OrderStatus.PendingPayment]    = [OrderStatus.PaymentProcessing, OrderStatus.Confirmed, OrderStatus.Cancelled, OrderStatus.Failed],
         [OrderStatus.PaymentProcessing] = [OrderStatus.Confirmed, OrderStatus.Failed, OrderStatus.Cancelled],
         [OrderStatus.Confirmed]         = [OrderStatus.Processing, OrderStatus.Cancelled],
         [OrderStatus.Processing]        = [OrderStatus.Packed, OrderStatus.Cancelled],
