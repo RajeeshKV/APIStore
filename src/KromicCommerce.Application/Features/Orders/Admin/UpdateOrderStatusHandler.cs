@@ -1,3 +1,4 @@
+using System.Text.Json;
 using KromicCommerce.Application.Abstractions.Payments;
 using KromicCommerce.Application.Features.Orders.GetMyOrders;
 using KromicCommerce.Contracts.Orders;
@@ -32,7 +33,12 @@ internal sealed class UpdateOrderStatusHandler(
         {
             switch (command.Status)
             {
-                case OrderStatus.Confirmed:     order.Confirm(); break;
+                case OrderStatus.Confirmed:
+                    order.Confirm();
+                    // When admin confirms, finalize inventory (move reserved → fulfilled)
+                    // This applies to both COD (reserved at checkout) and Razorpay (reserved at checkout)
+                    await FinalizeInventoryAsync(order, ct);
+                    break;
                 case OrderStatus.Processing:    order.MarkProcessing(); break;
                 case OrderStatus.Packed:        order.MarkPacked(); break;
                 case OrderStatus.Shipped:
@@ -49,6 +55,11 @@ internal sealed class UpdateOrderStatusHandler(
         {
             return Result.Failure<OrderResponse>(Error.Conflict("INVALID_ORDER_TRANSITION", ex.Message));
         }
+
+        // Publish outbox event for every status transition — drives automated customer emails
+        db.OutboxEvents.Add(OutboxEvent.Create(
+            GetEventType(command.Status),
+            BuildPayload(order, command)));
 
         await db.SaveChangesAsync(ct);
         logger.LogInformation("Order {OrderId} transitioned to {Status} by admin",
@@ -67,6 +78,9 @@ internal sealed class UpdateOrderStatusHandler(
         {
             return Result.Failure<OrderResponse>(Error.Conflict("INVALID_ORDER_TRANSITION", ex.Message));
         }
+
+        // Release inventory reservations on cancellation
+        await ReleaseInventoryAsync(order, ct);
 
         if (order.PaymentMethod == PaymentMethod.Razorpay)
         {
@@ -95,6 +109,8 @@ internal sealed class UpdateOrderStatusHandler(
                 else
                 {
                     logger.LogError("Refund failed for Order {OrderId}: {Error}", order.Id, refundResult.ErrorMessage);
+                    // Publish cancellation event even if refund fails — order is still cancelled
+                    db.OutboxEvents.Add(OutboxEvent.Create("OrderCancelled", BuildCancelPayload(order, reason)));
                     await db.SaveChangesAsync(ct);
                     return Result.Failure<OrderResponse>(Error.Conflict("REFUND_FAILED",
                         $"Order cancelled but refund could not be initiated: {refundResult.ErrorMessage}. " +
@@ -103,12 +119,94 @@ internal sealed class UpdateOrderStatusHandler(
             }
         }
 
+        db.OutboxEvents.Add(OutboxEvent.Create("OrderCancelled", BuildCancelPayload(order, reason)));
         await db.SaveChangesAsync(ct);
         logger.LogInformation("Order {OrderId} cancelled by admin. Reason: {Reason}",
             order.Id, reason ?? "none");
 
         return Result.Success(await BuildResponseAsync(order, ct));
     }
+
+    // -----------------------------------------------------------------------
+    // Inventory helpers
+    // -----------------------------------------------------------------------
+
+    private async Task FinalizeInventoryAsync(Order order, CancellationToken ct)
+    {
+        var productIds = order.Items.Select(i => i.ProductId).ToList();
+        var inventoryItems = await db.InventoryItems
+            .Where(i => productIds.Contains(i.ProductId))
+            .ToListAsync(ct);
+
+        foreach (var item in order.Items)
+        {
+            var inv = inventoryItems.FirstOrDefault(
+                i => i.ProductId == item.ProductId && i.VariantId == item.VariantId);
+            if (inv is null) continue;
+            try { inv.FinalizeReservation(item.Quantity); }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "FinalizeReservation failed for OrderItem {ItemId} Product {ProductId}",
+                    item.Id, item.ProductId);
+            }
+        }
+    }
+
+    private async Task ReleaseInventoryAsync(Order order, CancellationToken ct)
+    {
+        var productIds = order.Items.Select(i => i.ProductId).ToList();
+        var inventoryItems = await db.InventoryItems
+            .Where(i => productIds.Contains(i.ProductId))
+            .ToListAsync(ct);
+
+        foreach (var item in order.Items)
+        {
+            var inv = inventoryItems.FirstOrDefault(
+                i => i.ProductId == item.ProductId && i.VariantId == item.VariantId);
+            if (inv is null) continue;
+            try { inv.Release(item.Quantity); }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Inventory release failed for OrderItem {ItemId} Product {ProductId}",
+                    item.Id, item.ProductId);
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Outbox event helpers — every admin transition generates a customer email
+    // -----------------------------------------------------------------------
+
+    private static string GetEventType(OrderStatus status) => status switch
+    {
+        OrderStatus.Confirmed     => "OrderConfirmed",
+        OrderStatus.Processing    => "OrderProcessing",
+        OrderStatus.Packed        => "OrderPacked",
+        OrderStatus.Shipped       => "OrderShipped",
+        OrderStatus.Delivered     => "OrderDelivered",
+        OrderStatus.RefundPending => "OrderRefundPending",
+        OrderStatus.Refunded      => "OrderRefunded",
+        _                         => $"OrderStatus_{status}"
+    };
+
+    private static string BuildPayload(Order order, UpdateOrderStatusCommand cmd) =>
+        JsonSerializer.Serialize(new
+        {
+            order.Id, order.OrderNumber, order.CustomerId,
+            order.GrandTotal, order.CurrencyCode,
+            TrackingNumber = cmd.TrackingNumber,
+            TrackingProvider = cmd.TrackingProvider
+        });
+
+    private static string BuildCancelPayload(Order order, string? reason) =>
+        JsonSerializer.Serialize(new
+        {
+            order.Id, order.OrderNumber, order.CustomerId,
+            order.GrandTotal, order.CurrencyCode,
+            Reason = reason
+        });
 
     private async Task<OrderResponse> BuildResponseAsync(Order order, CancellationToken ct)
     {

@@ -237,22 +237,35 @@ internal sealed class CheckoutHandler(
         var payment = Payment.Create(order.Id, paymentMethod.ToString(), grandTotal, currency);
         db.Payments.Add(payment);
 
+        // OrderPlaced outbox event — triggers Order Placed email to customer.
+        // All orders start at OrderPlaced regardless of payment method.
+        // COD and Razorpay both get this event; payment confirmation is a separate event.
         var outboxPayload = JsonSerializer.Serialize(new
         {
             order.Id, order.OrderNumber, command.CustomerId,
-            grandTotal, currency
+            order.GrandTotal, order.CurrencyCode, order.Subtotal,
+            order.ShippingAmount, order.DiscountAmount, order.TaxAmount,
+            order.CodFee, order.AppliedCouponCode,
+            PaymentMethod = order.PaymentMethod.ToString(),
+            ShippingAddress = new
+            {
+                order.ShippingAddress.FullName,
+                order.ShippingAddress.AddressLine1,
+                order.ShippingAddress.City,
+                order.ShippingAddress.State,
+                order.ShippingAddress.Country
+            }
         });
-        db.OutboxEvents.Add(OutboxEvent.Create("OrderCreated", outboxPayload));
+        db.OutboxEvents.Add(OutboxEvent.Create("OrderPlaced", outboxPayload));
 
-        if (isCod)
+        // COD: order stays at OrderPlaced — admin must confirm after stock verification.
+        // Payment is collected on delivery; do NOT mark paid or confirm here.
+        if (isCod && promotionResult.IsValid && promotionResult.PromotionId.HasValue)
         {
-            order.Confirm();
-            payment.MarkPaid("cod");
-
-            // Record promotion usage for COD (confirmed immediately)
-            if (promotionResult.IsValid && promotionResult.PromotionId.HasValue)
-                await RecordPromotionUsageAsync(
-                    promotionResult.PromotionId.Value, command.CustomerId, order.Id, cancellationToken);
+            // Record promotion usage for COD at placement time (not at confirmation)
+            // — coupon is consumed when order is placed, not when admin confirms.
+            await RecordPromotionUsageAsync(
+                promotionResult.PromotionId.Value, command.CustomerId, order.Id, cancellationToken);
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -278,6 +291,8 @@ internal sealed class CheckoutHandler(
             {
                 providerOrderId = pgResult.ProviderOrderId;
                 payment.SetProviderOrderId(providerOrderId!);
+                // Transition OrderPlaced → PendingPayment now that payment widget can be shown
+                order.MarkPendingPayment();
                 await db.SaveChangesAsync(cancellationToken);
             }
         }

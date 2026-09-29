@@ -6,8 +6,17 @@ namespace KromicCommerce.Application.Features.Checkout;
 /// <summary>
 /// Verifies the payment signature returned by the Razorpay widget.
 /// The signature is validated server-side — the frontend cannot fake a successful payment.
-/// On success: marks payment as paid, confirms the order, finalizes inventory reservation.
-/// On failure: marks payment and order as failed, releases inventory.
+///
+/// On success:
+///   - Marks payment as paid.
+///   - Transitions order PendingPayment → OrderPlaced (paid, awaiting merchant confirmation).
+///   - Does NOT confirm the order — admin must do that after verifying stock.
+///   - Does NOT finalize inventory — inventory finalizes when admin confirms.
+///   - Records promotion usage.
+///   - Publishes PaymentSucceeded outbox event → sends payment confirmation email.
+///
+/// On failure:
+///   - Marks payment and order as failed, releases inventory.
 /// </summary>
 internal sealed class VerifyPaymentHandler(
     IApplicationDbContext db,
@@ -56,7 +65,7 @@ internal sealed class VerifyPaymentHandler(
             payment.MarkFailed("Signature verification failed.");
             order.MarkFailed();
 
-            // Release inventory reservations
+            // Release inventory reservations on payment failure
             await ReleaseInventoryAsync(order, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
 
@@ -65,14 +74,16 @@ internal sealed class VerifyPaymentHandler(
                     "Payment signature verification failed."));
         }
 
-        // Success — finalize
+        // -----------------------------------------------------------------------
+        // Payment successful.
+        // Order transitions PendingPayment → OrderPlaced (paid, awaiting merchant confirmation).
+        // Admin must still confirm the order after verifying stock availability.
+        // Inventory is NOT finalized here — it finalizes when admin confirms.
+        // -----------------------------------------------------------------------
         payment.MarkPaid(command.RazorpayPaymentId);
-        order.Confirm();
+        order.MarkPaymentReceived(); // PendingPayment → OrderPlaced, sets PaidAt
 
-        // Finalize inventory (move from reserved → fulfilled)
-        await FinalizeInventoryAsync(order, cancellationToken);
-
-        // Record promotion usage if a coupon was applied
+        // Record promotion usage now that payment is confirmed
         if (!string.IsNullOrWhiteSpace(order.AppliedCouponCode))
         {
             var promotion = await db.Promotions
@@ -84,7 +95,7 @@ internal sealed class VerifyPaymentHandler(
             }
         }
 
-        // Outbox event for confirmation email
+        // PaymentSucceeded event → sends payment confirmation email to customer
         var outboxPayload = JsonSerializer.Serialize(new
         {
             order.Id, order.OrderNumber, order.CustomerId,
@@ -95,7 +106,7 @@ internal sealed class VerifyPaymentHandler(
         await db.SaveChangesAsync(cancellationToken);
 
         logger.LogInformation(
-            "Payment verified. OrderId: {OrderId} ProviderPaymentId: {PaymentId}",
+            "Payment verified. OrderId: {OrderId} ProviderPaymentId: {PaymentId} — awaiting merchant confirmation.",
             command.OrderId, command.RazorpayPaymentId);
 
         return Result.Success(MapPayment(payment));
@@ -118,28 +129,6 @@ internal sealed class VerifyPaymentHandler(
             {
                 logger.LogError(ex,
                     "Release failed during payment failure for OrderItem {ItemId} Product {ProductId}",
-                    item.Id, item.ProductId);
-            }
-        }
-    }
-
-    private async Task FinalizeInventoryAsync(Order order, CancellationToken ct)
-    {
-        var productIds = order.Items.Select(i => i.ProductId).ToList();
-        var inventoryItems = await db.InventoryItems
-            .Where(i => productIds.Contains(i.ProductId))
-            .ToListAsync(ct);
-
-        foreach (var item in order.Items)
-        {
-            var inv = inventoryItems.FirstOrDefault(
-                i => i.ProductId == item.ProductId && i.VariantId == item.VariantId);
-            if (inv is null) continue;
-            try { inv.FinalizeReservation(item.Quantity); }
-            catch (Exception ex)
-            {
-                logger.LogError(ex,
-                    "FinalizeReservation failed for OrderItem {ItemId} Product {ProductId}",
                     item.Id, item.ProductId);
             }
         }

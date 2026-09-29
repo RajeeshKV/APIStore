@@ -12,45 +12,68 @@ public sealed class OrderDomainTests
         Order.Create(Guid.NewGuid(), "ORD-TEST-001", "INR",
             500m, 50m, 0m, 0m, 0m, 550m, DefaultAddress(), PaymentMethod.Razorpay);
 
+    // Helper: walk a Razorpay order through to Confirmed
+    private static Order CreateConfirmedOrder()
+    {
+        var order = CreateTestOrder();    // OrderPlaced
+        order.MarkPendingPayment();       // → PendingPayment
+        order.MarkPaymentReceived();      // → OrderPlaced (paid)
+        order.Confirm();                  // → Confirmed
+        return order;
+    }
+
     // -----------------------------------------------------------------------
     // State machine
     // -----------------------------------------------------------------------
 
     [Fact]
-    public void Order_starts_as_PendingPayment()
+    public void Order_starts_as_OrderPlaced()
     {
         var order = CreateTestOrder();
+        order.Status.Should().Be(OrderStatus.OrderPlaced);
+    }
+
+    [Fact]
+    public void Order_sets_OrderPlacedAt_on_creation()
+    {
+        var order = CreateTestOrder();
+        order.OrderPlacedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Razorpay_order_transitions_through_payment_flow()
+    {
+        var order = CreateTestOrder();
+        order.MarkPendingPayment();
         order.Status.Should().Be(OrderStatus.PendingPayment);
+
+        order.MarkPaymentReceived();
+        order.Status.Should().Be(OrderStatus.OrderPlaced);
+        order.PaidAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Confirm_transitions_from_OrderPlaced_to_Confirmed()
+    {
+        var order = CreateTestOrder(); // OrderPlaced
+        order.Confirm();
+        order.Status.Should().Be(OrderStatus.Confirmed);
     }
 
     [Fact]
     public void Confirm_transitions_from_PaymentProcessing_to_Confirmed()
     {
         var order = CreateTestOrder();
+        order.MarkPendingPayment();
         order.MarkPaymentProcessing();
         order.Confirm();
-        order.Status.Should().Be(OrderStatus.Confirmed);
-        order.PaidAt.Should().NotBeNull();
-    }
-
-    /// <summary>
-    /// PendingPayment → Confirmed is now valid for COD orders (skips PaymentProcessing).
-    /// This was changed when fixing the COD checkout flow.
-    /// </summary>
-    [Fact]
-    public void Can_confirm_directly_from_PendingPayment_for_COD()
-    {
-        var order = CreateTestOrder(); // PendingPayment
-        order.Confirm();              // direct confirm — valid for COD
         order.Status.Should().Be(OrderStatus.Confirmed);
     }
 
     [Fact]
     public void MarkShipped_sets_tracking_info()
     {
-        var order = CreateTestOrder();
-        order.MarkPaymentProcessing();
-        order.Confirm();
+        var order = CreateConfirmedOrder();
         order.MarkProcessing();
         order.MarkPacked();
         order.MarkShipped("TRK123", "Delhivery");
@@ -63,9 +86,7 @@ public sealed class OrderDomainTests
     [Fact]
     public void Cancel_allowed_from_Confirmed()
     {
-        var order = CreateTestOrder();
-        order.MarkPaymentProcessing();
-        order.Confirm();
+        var order = CreateConfirmedOrder();
         order.Cancel("Customer request");
         order.Status.Should().Be(OrderStatus.Cancelled);
         order.CancellationReason.Should().Be("Customer request");
@@ -75,9 +96,7 @@ public sealed class OrderDomainTests
     [Fact]
     public void Cannot_cancel_shipped_order()
     {
-        var order = CreateTestOrder();
-        order.MarkPaymentProcessing();
-        order.Confirm();
+        var order = CreateConfirmedOrder();
         order.MarkProcessing();
         order.MarkPacked();
         order.MarkShipped();
@@ -90,16 +109,14 @@ public sealed class OrderDomainTests
     {
         var order = CreateTestOrder();
         order.Cancel();
-        var act = () => order.Cancel(); // second cancel from Cancelled state
-        act.Should().Throw<InvalidOperationException>(); // no valid transition from Cancelled
+        var act = () => order.Cancel();
+        act.Should().Throw<InvalidOperationException>();
     }
 
     [Fact]
     public void MarkDelivered_sets_delivered_at()
     {
-        var order = CreateTestOrder();
-        order.MarkPaymentProcessing();
-        order.Confirm();
+        var order = CreateConfirmedOrder();
         order.MarkProcessing();
         order.MarkPacked();
         order.MarkShipped();
@@ -121,9 +138,9 @@ public sealed class OrderDomainTests
     {
         var order = CreateTestOrder();
         order.ClearDomainEvents();
-        order.MarkPaymentProcessing();
+        order.MarkPendingPayment();
         order.DomainEvents.OfType<OrderStatusChangedEvent>()
-            .Should().ContainSingle(e => e.NewStatus == OrderStatus.PaymentProcessing);
+            .Should().ContainSingle(e => e.NewStatus == OrderStatus.PendingPayment);
     }
 
     // -----------------------------------------------------------------------

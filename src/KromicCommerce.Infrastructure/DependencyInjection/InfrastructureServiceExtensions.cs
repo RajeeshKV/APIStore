@@ -97,6 +97,7 @@ public static class InfrastructureServiceExtensions
         services.AddOptions<AppPublicOptions>().Configure<IOptions<AppOptions>>((apo, app) =>
         {
             apo.ApiBaseUrl = app.Value.ApiBaseUrl;
+            apo.FrontendUrl = app.Value.FrontendUrl;
         });
 
         // Bridge CacheOptions → Application CatalogCacheOptions

@@ -46,7 +46,8 @@ public sealed class Order : AuditableEntity
             ShippingAddress = shippingAddress,
             PaymentMethod = paymentMethod,
             AppliedCouponCode = appliedCouponCode,
-            Status = OrderStatus.PendingPayment
+            Status = OrderStatus.OrderPlaced,
+            OrderPlacedAt = DateTime.UtcNow
         };
         order.RaiseDomainEvent(new OrderCreatedEvent(order.Id, customerId, grandTotal, currencyCode));
         return order;
@@ -88,6 +89,7 @@ public sealed class Order : AuditableEntity
     public string? TrackingNumber { get; private set; }
     public string? TrackingProvider { get; private set; }
     public string? CancellationReason { get; private set; }
+    public DateTime? OrderPlacedAt { get; private set; }
     public DateTime? PaidAt { get; private set; }
     public DateTime? ShippedAt { get; private set; }
     public DateTime? DeliveredAt { get; private set; }
@@ -103,7 +105,10 @@ public sealed class Order : AuditableEntity
 
     private static readonly Dictionary<OrderStatus, HashSet<OrderStatus>> AllowedTransitions = new()
     {
-        [OrderStatus.PendingPayment]    = [OrderStatus.PaymentProcessing, OrderStatus.Confirmed, OrderStatus.Cancelled, OrderStatus.Failed],
+        // New orders always start at OrderPlaced
+        [OrderStatus.OrderPlaced]       = [OrderStatus.PendingPayment, OrderStatus.Confirmed, OrderStatus.Cancelled, OrderStatus.Failed],
+        // Razorpay: OrderPlaced → PendingPayment while awaiting payment widget
+        [OrderStatus.PendingPayment]    = [OrderStatus.PaymentProcessing, OrderStatus.OrderPlaced, OrderStatus.Cancelled, OrderStatus.Failed],
         [OrderStatus.PaymentProcessing] = [OrderStatus.Confirmed, OrderStatus.Failed, OrderStatus.Cancelled],
         [OrderStatus.Confirmed]         = [OrderStatus.Processing, OrderStatus.Cancelled],
         [OrderStatus.Processing]        = [OrderStatus.Packed, OrderStatus.Cancelled],
@@ -127,10 +132,22 @@ public sealed class Order : AuditableEntity
         if (reason is not null) CancellationReason = reason;
     }
 
-    public void MarkPaymentProcessing()   => Transition(OrderStatus.PaymentProcessing);
-    public void Confirm()                 { Transition(OrderStatus.Confirmed); PaidAt = DateTime.UtcNow; }
-    public void MarkProcessing()          => Transition(OrderStatus.Processing);
-    public void MarkPacked()              => Transition(OrderStatus.Packed);
+    /// <summary>
+    /// Marks the order as awaiting Razorpay payment.
+    /// Called after Razorpay payment widget is initialized.
+    /// </summary>
+    public void MarkPendingPayment()       => Transition(OrderStatus.PendingPayment);
+
+    public void MarkPaymentProcessing()    => Transition(OrderStatus.PaymentProcessing);
+
+    /// <summary>
+    /// Merchant confirms the order is ready for fulfillment.
+    /// Must be called explicitly by admin after verifying stock.
+    /// </summary>
+    public void Confirm()                  => Transition(OrderStatus.Confirmed);
+
+    public void MarkProcessing()           => Transition(OrderStatus.Processing);
+    public void MarkPacked()               => Transition(OrderStatus.Packed);
     public void MarkShipped(string? trackingNumber = null, string? provider = null)
     {
         Transition(OrderStatus.Shipped);
@@ -138,15 +155,32 @@ public sealed class Order : AuditableEntity
         TrackingProvider = provider;
         ShippedAt = DateTime.UtcNow;
     }
-    public void MarkDelivered()           { Transition(OrderStatus.Delivered); DeliveredAt = DateTime.UtcNow; }
-    public void MarkFailed()              => Transition(OrderStatus.Failed);
+    public void MarkDelivered()            { Transition(OrderStatus.Delivered); DeliveredAt = DateTime.UtcNow; }
+    public void MarkFailed()               => Transition(OrderStatus.Failed);
     public void Cancel(string? reason = null)
     {
         Transition(OrderStatus.Cancelled, reason);
         CancelledAt = DateTime.UtcNow;
     }
-    public void MarkRefundPending()       => Transition(OrderStatus.RefundPending);
-    public void MarkRefunded()            => Transition(OrderStatus.Refunded);
+    public void MarkRefundPending()        => Transition(OrderStatus.RefundPending);
+    public void MarkRefunded()             => Transition(OrderStatus.Refunded);
+
+    /// <summary>
+    /// Records when payment is captured/confirmed.
+    /// Separate from Confirm() — paying for an order ≠ merchant confirming fulfillment.
+    /// </summary>
+    public void RecordPayment()            { PaidAt = DateTime.UtcNow; }
+
+    /// <summary>
+    /// Called after successful Razorpay payment verification.
+    /// Transitions PendingPayment → OrderPlaced (paid, awaiting merchant confirmation).
+    /// Payment is received but merchant still needs to confirm fulfillment.
+    /// </summary>
+    public void MarkPaymentReceived()
+    {
+        Transition(OrderStatus.OrderPlaced);
+        PaidAt = DateTime.UtcNow;
+    }
 
     // -----------------------------------------------------------------------
     // Items

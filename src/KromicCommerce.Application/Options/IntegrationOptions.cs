@@ -25,6 +25,12 @@ public sealed class AppPublicOptions
         string.IsNullOrWhiteSpace(ApiBaseUrl)
             ? string.Empty
             : $"{ApiBaseUrl.TrimEnd('/')}/api/v1/webhooks/payment";
+
+    /// <summary>
+    /// Frontend public URL for generating customer-facing links in emails.
+    /// Bridged from App__FrontendUrl.
+    /// </summary>
+    public string? FrontendUrl { get; set; }
 }
 
 /// <summary>

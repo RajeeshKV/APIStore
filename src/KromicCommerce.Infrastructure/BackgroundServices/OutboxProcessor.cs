@@ -1,6 +1,7 @@
 using System.Text.Json;
 using KromicCommerce.Application.Abstractions.Email;
 using KromicCommerce.Application.Abstractions.Store;
+using KromicCommerce.Application.Options;
 using KromicCommerce.Infrastructure.Configuration;
 using KromicCommerce.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,10 +11,9 @@ namespace KromicCommerce.Infrastructure.BackgroundServices;
 
 /// <summary>
 /// Background service that polls the OutboxEvents table and dispatches pending events.
-/// Runs on a configurable interval (BackgroundWorkerOptions.OutboxIntervalSeconds).
-/// Retries up to MaxRetries before permanently failing an event.
+/// Runs on BackgroundWorkerOptions.OutboxIntervalSeconds.
+/// Retries up to MaxRetries before permanently sealing a failed event.
 /// Email/SMS failures do NOT corrupt the core order state — side effects are decoupled.
-/// Never logs credentials, tokens, or sensitive payload contents.
 /// </summary>
 internal sealed class OutboxProcessor(
     IServiceScopeFactory scopeFactory,
@@ -37,7 +37,6 @@ internal sealed class OutboxProcessor(
             }
             catch (OperationCanceledException)
             {
-                // Host is shutting down — exit the loop cleanly without logging as an error
                 break;
             }
         }
@@ -51,13 +50,12 @@ internal sealed class OutboxProcessor(
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var emailSvc = scope.ServiceProvider.GetRequiredService<IEmailService>();
         var businessSettings = scope.ServiceProvider.GetRequiredService<IBusinessSettingsService>();
+        var appOptions = scope.ServiceProvider.GetRequiredService<IOptions<AppPublicOptions>>().Value;
 
         var opts = workerOptions.Value;
 
         var pending = await db.OutboxEvents
-            .Where(e =>
-                e.ProcessedAt == null &&
-                e.RetryCount < opts.OutboxMaxRetries)
+            .Where(e => e.ProcessedAt == null && e.RetryCount < opts.OutboxMaxRetries)
             .OrderBy(e => e.CreatedAt)
             .Take(opts.OutboxBatchSize)
             .ToListAsync(ct);
@@ -70,7 +68,7 @@ internal sealed class OutboxProcessor(
         {
             try
             {
-                await DispatchAsync(evt, db, emailSvc, settings, ct);
+                await DispatchAsync(evt, db, emailSvc, settings, appOptions, ct);
                 evt.MarkProcessed();
             }
             catch (Exception ex)
@@ -80,14 +78,11 @@ internal sealed class OutboxProcessor(
                     "OutboxEvent dispatch failed. EventType: {Type} RetryCount: {Retry}",
                     evt.EventType, evt.RetryCount);
 
-                // Mark permanently failed when max retries exceeded so it's
-                // excluded from future queries AND visible in operational monitoring
                 if (evt.HasFailed(opts.OutboxMaxRetries))
                 {
-                    evt.MarkProcessed(); // seal it so it stops retrying
+                    evt.MarkProcessed();
                     logger.LogError(
-                        "OutboxEvent permanently failed after {MaxRetries} retries. " +
-                        "EventType: {Type} EventId: {Id}",
+                        "OutboxEvent permanently failed after {MaxRetries} retries. EventType: {Type} Id: {Id}",
                         opts.OutboxMaxRetries, evt.EventType, evt.Id);
                 }
             }
@@ -101,76 +96,199 @@ internal sealed class OutboxProcessor(
         AppDbContext db,
         IEmailService emailSvc,
         BusinessSettings? settings,
+        AppPublicOptions appOptions,
         CancellationToken ct)
     {
         switch (evt.EventType)
         {
-            case "OrderCreated":
-            case "PaymentSucceeded":
+            // -----------------------------------------------------------------------
+            // Order placed — customer submitted a new order
+            // -----------------------------------------------------------------------
+            case "OrderPlaced":
             {
-                var data = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(evt.Payload);
-                if (data is null) return;
-
-                var orderId = data["Id"].GetGuid();
-                var customerId = data.ContainsKey("CustomerId")
-                    ? data["CustomerId"].GetGuid()
-                    : Guid.Empty;
-
-                var user = await db.Users
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(u => u.Id == customerId, ct);
-
-                if (user is null) return;
-
-                var grandTotal = data.ContainsKey("GrandTotal")
-                    ? data["GrandTotal"].GetDecimal() : 0m;
-                var currency = data.ContainsKey("CurrencyCode")
-                    ? data["CurrencyCode"].GetString() ?? "INR" : "INR";
-                var orderNumber = data.ContainsKey("OrderNumber")
-                    ? data["OrderNumber"].GetString() ?? "" : "";
-
-                var ctx = new OrderEmailContext(
-                    user.Email, user.FullName,
-                    orderNumber, grandTotal, currency,
-                    settings?.BusinessName ?? "Store",
-                    settings?.LogoUrl, settings?.SupportEmail, settings?.WebsiteUrl);
-
-                if (evt.EventType == "OrderCreated")
-                    await emailSvc.SendOrderConfirmationAsync(ctx, ct);
-                else
-                    await emailSvc.SendPaymentConfirmationAsync(ctx, ct);
-
+                var ctx = await BuildOrderContextAsync(evt, db, settings, appOptions, ct);
+                if (ctx is null) return;
+                await emailSvc.SendOrderPlacedAsync(ctx, ct);
                 break;
             }
+
+            // -----------------------------------------------------------------------
+            // Legacy OrderCreated — maps to OrderPlaced email
+            // -----------------------------------------------------------------------
+            case "OrderCreated":
+            {
+                var ctx = await BuildOrderContextAsync(evt, db, settings, appOptions, ct);
+                if (ctx is null) return;
+                await emailSvc.SendOrderPlacedAsync(ctx, ct);
+                break;
+            }
+
+            // -----------------------------------------------------------------------
+            // Merchant confirmed the order
+            // -----------------------------------------------------------------------
+            case "OrderConfirmed":
+            {
+                var ctx = await BuildOrderContextAsync(evt, db, settings, appOptions, ct);
+                if (ctx is null) return;
+                await emailSvc.SendOrderConfirmedAsync(ctx, ct);
+                break;
+            }
+
+            // -----------------------------------------------------------------------
+            // Order processing / packed — informational, no dedicated template yet
+            // -----------------------------------------------------------------------
+            case "OrderProcessing":
+            case "OrderPacked":
+            {
+                // No dedicated email for these statuses — mark processed silently
+                logger.LogDebug("No email template for event type {Type}. Skipping.", evt.EventType);
+                break;
+            }
+
+            // -----------------------------------------------------------------------
+            // Order shipped
+            // -----------------------------------------------------------------------
+            case "OrderShipped":
+            {
+                var raw = ParsePayload(evt);
+                if (raw is null) return;
+                var data = raw.Value;
+
+                var ctx = await BuildOrderContextAsync(evt, db, settings, appOptions, ct);
+                if (ctx is null) return;
+
+                var tracking = data.TryGetProperty("TrackingNumber", out var t) ? t.GetString() : null;
+                var provider = data.TryGetProperty("TrackingProvider", out var p) ? p.GetString() : null;
+                await emailSvc.SendOrderShippedAsync(ctx, tracking, provider, ct);
+                break;
+            }
+
+            // -----------------------------------------------------------------------
+            // Order delivered
+            // -----------------------------------------------------------------------
+            case "OrderDelivered":
+            {
+                var ctx = await BuildOrderContextAsync(evt, db, settings, appOptions, ct);
+                if (ctx is null) return;
+                await emailSvc.SendOrderDeliveredAsync(ctx, ct);
+                break;
+            }
+
+            // -----------------------------------------------------------------------
+            // Order cancelled
+            // -----------------------------------------------------------------------
             case "OrderCancelled":
             {
-                var data = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(evt.Payload);
-                if (data is null) return;
+                var raw = ParsePayload(evt);
+                if (raw is null) return;
+                var data = raw.Value;
 
-                var customerId = data.ContainsKey("CustomerId")
-                    ? data["CustomerId"].GetGuid() : Guid.Empty;
-                var orderNumber = data.ContainsKey("OrderNumber")
-                    ? data["OrderNumber"].GetString() ?? "" : "";
-                var currency = data.ContainsKey("CurrencyCode")
-                    ? data["CurrencyCode"].GetString() ?? "INR" : "INR";
+                var ctx = await BuildOrderContextAsync(evt, db, settings, appOptions, ct);
+                if (ctx is null) return;
 
-                var user = await db.Users.AsNoTracking()
-                    .FirstOrDefaultAsync(u => u.Id == customerId, ct);
-                if (user is null) return;
+                var reason = data.TryGetProperty("Reason", out var r) ? r.GetString() : null;
+                await emailSvc.SendOrderCancelledAsync(ctx, reason, ct);
+                break;
+            }
 
-                var ctx = new OrderEmailContext(
-                    user.Email, user.FullName, orderNumber, 0m, currency,
-                    settings?.BusinessName ?? "Store",
-                    settings?.LogoUrl, settings?.SupportEmail, settings?.WebsiteUrl);
+            // -----------------------------------------------------------------------
+            // Refund
+            // -----------------------------------------------------------------------
+            case "OrderRefundPending":
+            {
+                // No dedicated email — refund confirmed email sent on OrderRefunded
+                logger.LogDebug("OrderRefundPending received — no email sent.");
+                break;
+            }
 
-                await emailSvc.SendOrderCancelledAsync(ctx, null, ct);
+            case "OrderRefunded":
+            {
+                var ctx = await BuildOrderContextAsync(evt, db, settings, appOptions, ct);
+                if (ctx is null) return;
+                await emailSvc.SendOrderRefundedAsync(ctx, ct);
+                break;
+            }
+
+            // -----------------------------------------------------------------------
+            // Razorpay payment captured
+            // -----------------------------------------------------------------------
+            case "PaymentSucceeded":
+            {
+                var ctx = await BuildOrderContextAsync(evt, db, settings, appOptions, ct);
+                if (ctx is null) return;
+                await emailSvc.SendPaymentConfirmationAsync(ctx, ct);
+                break;
+            }
+
+            // -----------------------------------------------------------------------
+            // Non-email integration events — mark processed, no retry needed
+            // -----------------------------------------------------------------------
+            case "RazorpayConfigurationUpdated":
+            case "GoogleOAuthConfigurationUpdated":
+            case "IntegrationConfigUpdated":
+            {
+                logger.LogDebug("Audit-only outbox event {Type} — no action needed.", evt.EventType);
                 break;
             }
 
             default:
                 logger.LogDebug("Unhandled outbox event type: {Type}", evt.EventType);
-                evt.MarkProcessed(); // mark done so it doesn't retry indefinitely
                 break;
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    private static JsonElement? ParsePayload(OutboxEvent evt)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(evt.Payload);
+            return doc.RootElement.Clone();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<OrderEmailContext?> BuildOrderContextAsync(
+        OutboxEvent evt,
+        AppDbContext db,
+        BusinessSettings? settings,
+        AppPublicOptions appOptions,
+        CancellationToken ct)
+    {
+        var data = ParsePayload(evt);
+        if (data is null) return null;
+
+        if (!data.Value.TryGetProperty("CustomerId", out var cidEl)) return null;
+        var customerId = cidEl.GetGuid();
+
+        var user = await db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == customerId, ct);
+        if (user is null) return null;
+
+        var orderNumber = data.Value.TryGetProperty("OrderNumber", out var on)
+            ? on.GetString() ?? string.Empty : string.Empty;
+        var grandTotal = data.Value.TryGetProperty("GrandTotal", out var gt)
+            ? gt.GetDecimal() : 0m;
+        var currency = data.Value.TryGetProperty("CurrencyCode", out var cc)
+            ? cc.GetString() ?? "INR" : "INR";
+
+        return new OrderEmailContext(
+            CustomerEmail: user.Email,
+            CustomerName: user.FullName,
+            OrderNumber: orderNumber,
+            GrandTotal: grandTotal,
+            Currency: currency,
+            BusinessName: settings?.BusinessName ?? "Store",
+            LogoUrl: settings?.LogoUrl,
+            SupportEmail: settings?.SupportEmail,
+            WebsiteUrl: settings?.WebsiteUrl,
+            FrontendUrl: appOptions.FrontendUrl);
     }
 }
