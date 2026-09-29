@@ -18,12 +18,25 @@ internal sealed class GetPaymentIntegrationStatusHandler(
     {
         var o = opts.Value;
 
-        // Webhook URL is computed from ApiBaseUrl — shown on every GET so admin can
-        // copy it to Razorpay Dashboard before (and after) entering credentials.
+        var publicFields = new Dictionary<string, string?>();
+
+        // Webhook URL — always shown so admin can copy it to Razorpay Dashboard
         var webhookUrl = appOptions.Value.RazorpayWebhookUrl;
-        var publicFields = string.IsNullOrWhiteSpace(webhookUrl)
-            ? null
-            : new Dictionary<string, string> { ["webhookUrl"] = webhookUrl };
+        if (!string.IsNullOrWhiteSpace(webhookUrl))
+            publicFields["webhookUrl"] = webhookUrl;
+
+        // Suggested webhook secret — generated fresh when not yet configured.
+        // The admin copies this into Razorpay Dashboard (Settings → Webhooks → Secret),
+        // then pastes the same value into the Webhook Secret field here and saves.
+        // Once a secret is configured, the suggestion is omitted — no need to regenerate.
+        if (!o.HasWebhookSecret)
+        {
+            // Cryptographically random, URL-safe, 32 bytes → 43 chars
+            var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
+            var suggested = Convert.ToBase64String(bytes)
+                .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+            publicFields["suggestedWebhookSecret"] = suggested;
+        }
 
         var status = new IntegrationStatusResponse(
             "Razorpay",
@@ -31,7 +44,7 @@ internal sealed class GetPaymentIntegrationStatusHandler(
             o.IsConfigured,
             string.IsNullOrWhiteSpace(o.KeyId) ? null : secretService.Mask(o.KeyId),
             HasSecret: o.HasKeySecret,
-            PublicFields: publicFields!);
+            PublicFields: publicFields.Count > 0 ? publicFields! : null);
 
         return Task.FromResult(Result.Success(status));
     }
