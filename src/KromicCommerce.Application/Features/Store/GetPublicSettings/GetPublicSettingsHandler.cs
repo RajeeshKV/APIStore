@@ -67,5 +67,11 @@ internal sealed class GetPublicSettingsHandler(
                 // The encrypted Client Secret is NEVER included here.
                 GoogleClientId: s.Auth.GoogleOAuthEnabled ? s.Auth.GoogleClientId : null,
                 EmailPasswordEnabled: s.Auth.EmailPasswordEnabled,
-                MobileOtpEnabled: s.Auth.MobileOtpEnabled));
+                MobileOtpEnabled: s.Auth.MobileOtpEnabled),
+            Payment: new PublicPaymentSettingsDto(
+                RazorpayEnabled: s.Payment.Enabled && s.Payment.IsConfigured,
+                CodEnabled: s.Delivery.CodEnabled,
+                // Only expose the Key ID when Razorpay is active — it is a public identifier
+                // safe for the browser Razorpay widget. The encrypted Key Secret is NEVER included here.
+                RazorpayKeyId: (s.Payment.Enabled && s.Payment.IsConfigured) ? s.Payment.RazorpayKeyId : null));
 }

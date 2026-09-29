@@ -40,7 +40,13 @@ public sealed record PublicBusinessSettingsResponse(
     /// GoogleClientId is included only when Google OAuth is enabled — it is a public
     /// identifier safe to expose to the browser (not a secret).
     /// </summary>
-    PublicAuthSettingsDto Auth);
+    PublicAuthSettingsDto Auth,
+    /// <summary>
+    /// Payment methods available on this storefront.
+    /// Use RazorpayEnabled to show/hide the online payment option.
+    /// Never expose KeySecret or WebhookSecret here — only the public KeyId.
+    /// </summary>
+    PublicPaymentSettingsDto Payment);
 
 /// <summary>Public tracking configuration for client-side analytics integration.</summary>
 public sealed record TrackingSettingsDto(
@@ -61,3 +67,18 @@ public sealed record PublicAuthSettingsDto(
     string? GoogleClientId,
     bool EmailPasswordEnabled,
     bool MobileOtpEnabled);
+
+/// <summary>
+/// Storefront-facing payment configuration.
+/// RazorpayEnabled drives whether the frontend shows the online payment option.
+/// RazorpayKeyId is the public Razorpay key (rzp_live_... / rzp_test_...) — safe to expose
+/// to the browser for widget initialisation. Never expose KeySecret here.
+/// </summary>
+public sealed record PublicPaymentSettingsDto(
+    bool RazorpayEnabled,
+    bool CodEnabled,
+    /// <summary>
+    /// Public Razorpay Key ID for the checkout widget.
+    /// Present only when RazorpayEnabled = true. Null otherwise.
+    /// </summary>
+    string? RazorpayKeyId);
