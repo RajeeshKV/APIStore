@@ -154,7 +154,8 @@ public sealed class AppDbContext(
             @"INSERT INTO carts (""Id"", ""CustomerId"", ""AnonymousId"", ""ExpiresAt"", ""CreatedAtUtc"", ""UpdatedAtUtc"")
               VALUES ({0}, {1}, NULL, {2}, {3}, {3})
               ON CONFLICT DO NOTHING",
-            cancellationToken, cartId, customerId, expiresAt, now);
+            new object[] { cartId, customerId, expiresAt, now },
+            cancellationToken);
 
         return await Carts
             .AsNoTracking()
@@ -188,7 +189,8 @@ public sealed class AppDbContext(
             @"INSERT INTO carts (""Id"", ""CustomerId"", ""AnonymousId"", ""ExpiresAt"", ""CreatedAtUtc"", ""UpdatedAtUtc"")
               VALUES ({0}, NULL, {1}, {2}, {3}, {3})
               ON CONFLICT DO NOTHING",
-            cancellationToken, cartId, newAnonId, expiresAt, now);
+            new object[] { cartId, newAnonId, expiresAt, now },
+            cancellationToken);
 
         var survivingId = await Carts
             .AsNoTracking()
@@ -216,7 +218,8 @@ public sealed class AppDbContext(
                   VALUES ({0}, {1}, {2}, {3}, {4}, {5})
                   ON CONFLICT (""CartId"", ""ProductId"", ""VariantId"") WHERE ""VariantId"" IS NOT NULL
                   DO UPDATE SET ""Quantity"" = cart_items.""Quantity"" + EXCLUDED.""Quantity""",
-                cancellationToken, itemId, cartId, productId, variantId.Value, quantity, addedAt);
+                new object[] { itemId, cartId, productId, variantId.Value, quantity, addedAt },
+                cancellationToken);
         }
         else
         {
@@ -225,7 +228,8 @@ public sealed class AppDbContext(
                   VALUES ({0}, {1}, {2}, NULL, {3}, {4})
                   ON CONFLICT (""CartId"", ""ProductId"", ""VariantId"")
                   DO UPDATE SET ""Quantity"" = cart_items.""Quantity"" + EXCLUDED.""Quantity""",
-                cancellationToken, itemId, cartId, productId, quantity, addedAt);
+                new object[] { itemId, cartId, productId, quantity, addedAt },
+                cancellationToken);
         }
     }
 
