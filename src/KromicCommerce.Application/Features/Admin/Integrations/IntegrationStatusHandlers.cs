@@ -8,30 +8,31 @@ public sealed record GetGoogleIntegrationStatusQuery : IQuery<IntegrationStatusR
 // -------------------------------------------------------------------------
 
 internal sealed class GetPaymentIntegrationStatusHandler(
-    IOptions<RazorpayStatusOptions> opts,
+    IBusinessSettingsService settingsService,
     IOptions<AppPublicOptions> appOptions,
     ISecretProtectionService secretService)
     : IQueryHandler<GetPaymentIntegrationStatusQuery, IntegrationStatusResponse>
 {
-    public Task<Result<IntegrationStatusResponse>> Handle(
+    public async Task<Result<IntegrationStatusResponse>> Handle(
         GetPaymentIntegrationStatusQuery query, CancellationToken ct)
     {
-        var o = opts.Value;
+        // Read credentials from the authoritative persistent store — not from IOptions.
+        var settings = await settingsService.GetAsync(ct);
+        var payment = settings?.Payment;
+
+        var isConfigured = payment?.IsConfigured ?? false;
+        var isEnabled    = payment?.Enabled ?? false;
 
         var publicFields = new Dictionary<string, string?>();
 
-        // Webhook URL — always shown so admin can copy it to Razorpay Dashboard
+        // Webhook URL — always shown so admin can copy to Razorpay Dashboard on first load
         var webhookUrl = appOptions.Value.RazorpayWebhookUrl;
         if (!string.IsNullOrWhiteSpace(webhookUrl))
             publicFields["webhookUrl"] = webhookUrl;
 
-        // Suggested webhook secret — generated fresh when not yet configured.
-        // The admin copies this into Razorpay Dashboard (Settings → Webhooks → Secret),
-        // then pastes the same value into the Webhook Secret field here and saves.
-        // Once a secret is configured, the suggestion is omitted — no need to regenerate.
-        if (!o.HasWebhookSecret)
+        // Suggested webhook secret — only when not yet configured
+        if (!(payment?.IsConfigured ?? false))
         {
-            // Cryptographically random, URL-safe, 32 bytes → 43 chars
             var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32);
             var suggested = Convert.ToBase64String(bytes)
                 .Replace('+', '-').Replace('/', '_').TrimEnd('=');
@@ -40,13 +41,15 @@ internal sealed class GetPaymentIntegrationStatusHandler(
 
         var status = new IntegrationStatusResponse(
             "Razorpay",
-            o.Enabled,
-            o.IsConfigured,
-            string.IsNullOrWhiteSpace(o.KeyId) ? null : secretService.Mask(o.KeyId),
-            HasSecret: o.HasKeySecret,
+            Enabled: isEnabled,
+            IsConfigured: isConfigured,
+            MaskedKeyId: string.IsNullOrWhiteSpace(payment?.RazorpayKeyId)
+                ? null
+                : secretService.Mask(payment.RazorpayKeyId),
+            HasSecret: !string.IsNullOrWhiteSpace(payment?.EncryptedRazorpayKeySecret),
             PublicFields: publicFields.Count > 0 ? publicFields! : null);
 
-        return Task.FromResult(Result.Success(status));
+        return Result.Success(status);
     }
 }
 

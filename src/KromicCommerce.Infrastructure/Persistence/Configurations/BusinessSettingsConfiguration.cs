@@ -221,5 +221,28 @@ internal sealed class BusinessSettingsConfiguration : IEntityTypeConfiguration<B
                 .HasMaxLength(50)
                 .HasDefaultValue("Tax");
         });
+
+        // -----------------------------------------------------------------------
+        // Owned: PaymentSettings (Razorpay credentials — nullable, stored encrypted)
+        // -----------------------------------------------------------------------
+        builder.OwnsOne(bs => bs.Payment, p =>
+        {
+            p.Property(x => x.Enabled)
+                .HasColumnName("payment_enabled")
+                .IsRequired()
+                .HasDefaultValue(false);
+
+            p.Property(x => x.RazorpayKeyId)
+                .HasColumnName("payment_razorpay_key_id")
+                .HasMaxLength(256);
+
+            p.Property(x => x.EncryptedRazorpayKeySecret)
+                .HasColumnName("payment_razorpay_key_secret_enc")
+                .HasMaxLength(1024);
+
+            p.Property(x => x.EncryptedRazorpayWebhookSecret)
+                .HasColumnName("payment_razorpay_webhook_secret_enc")
+                .HasMaxLength(1024);
+        });
     }
 }

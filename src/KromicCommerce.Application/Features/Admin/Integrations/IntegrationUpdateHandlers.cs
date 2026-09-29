@@ -27,29 +27,36 @@ public sealed record UpdateEmailConfigCommand(
 
 internal sealed class UpdateRazorpayConfigHandler(
     IApplicationDbContext db,
+    IBusinessSettingsService settingsService,
     ISecretProtectionService secrets,
     ILogger<UpdateRazorpayConfigHandler> logger)
     : ICommandHandler<UpdateRazorpayConfigCommand>
 {
     public async Task<Result> Handle(UpdateRazorpayConfigCommand cmd, CancellationToken ct)
     {
-        // Encrypt before persistence — never store plain secrets
+        var settings = await db.BusinessSettings
+            .FindAsync([BusinessSettings.SingletonId], ct);
+
+        if (settings is null)
+            return Result.Failure(Error.NotFound(
+                "BUSINESS_SETTINGS_NOT_FOUND", "Business settings have not been initialised."));
+
+        // Encrypt before persistence — never store plaintext secrets
         var encryptedSecret = secrets.Protect(cmd.KeySecret);
         var encryptedWebhook = secrets.Protect(cmd.WebhookSecret);
 
-        var payload = JsonSerializer.Serialize(new
-        {
-            cmd.Enabled,
-            cmd.KeyId,
-            KeySecret = encryptedSecret,
-            WebhookSecret = encryptedWebhook,
-            IntegrationType = "Razorpay"
-        });
+        // Persist to BusinessSettings — authoritative configuration store.
+        // Status endpoint reads from here; payment flow reads from here.
+        settings.UpdatePaymentCredentials(cmd.KeyId, encryptedSecret, encryptedWebhook, cmd.Enabled);
 
-        db.OutboxEvents.Add(OutboxEvent.Create("IntegrationConfigUpdated", payload));
+        await db.SaveChangesAsync(ct);
+        settingsService.Invalidate();
+
+        // Audit-only Outbox event — NOT a config store, credentials excluded
+        db.OutboxEvents.Add(OutboxEvent.Create("RazorpayConfigurationUpdated",
+            JsonSerializer.Serialize(new { cmd.Enabled, ConfiguredAt = DateTime.UtcNow })));
         await db.SaveChangesAsync(ct);
 
-        // Never log the raw key or secret
         logger.LogInformation("Razorpay configuration updated. Enabled: {Enabled}", cmd.Enabled);
         return Result.Success();
     }

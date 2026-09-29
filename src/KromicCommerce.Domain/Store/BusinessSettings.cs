@@ -30,7 +30,8 @@ public sealed class BusinessSettings : AuditableEntity
             Auth = StoreAuthSettings.Default(),
             Email = EmailSettings.Default(),
             Seo = SeoSettings.Default(),
-            Tax = TaxSettings.Default()
+            Tax = TaxSettings.Default(),
+            Payment = PaymentSettings.Default()
         };
 
     // -----------------------------------------------------------------------
@@ -74,6 +75,7 @@ public sealed class BusinessSettings : AuditableEntity
     public EmailSettings Email { get; private set; } = EmailSettings.Default();
     public SeoSettings Seo { get; private set; } = SeoSettings.Default();
     public TaxSettings Tax { get; private set; } = TaxSettings.Default();
+    public PaymentSettings Payment { get; private set; } = PaymentSettings.Default();
 
     // -----------------------------------------------------------------------
     // Behaviour
@@ -197,5 +199,31 @@ public sealed class BusinessSettings : AuditableEntity
     public void ClearGoogleCredentials()
     {
         Auth = Auth.WithoutGoogleCredentials();
+    }
+
+    /// <summary>
+    /// Persists encrypted Razorpay credentials.
+    /// All secrets must be encrypted by the caller before passing here.
+    /// </summary>
+    public void UpdatePaymentCredentials(
+        string keyId,
+        string encryptedKeySecret,
+        string encryptedWebhookSecret,
+        bool enabled = true)
+    {
+        if (string.IsNullOrWhiteSpace(keyId))
+            throw new ArgumentException("Razorpay Key ID must not be empty.", nameof(keyId));
+        if (string.IsNullOrWhiteSpace(encryptedKeySecret))
+            throw new ArgumentException("Encrypted Key Secret must not be empty.", nameof(encryptedKeySecret));
+        if (string.IsNullOrWhiteSpace(encryptedWebhookSecret))
+            throw new ArgumentException("Encrypted Webhook Secret must not be empty.", nameof(encryptedWebhookSecret));
+
+        Payment = Payment.WithCredentials(keyId, encryptedKeySecret, encryptedWebhookSecret, enabled);
+    }
+
+    /// <summary>Enables or disables Razorpay without changing credentials.</summary>
+    public void SetPaymentEnabled(bool enabled)
+    {
+        Payment = Payment.WithEnabled(enabled);
     }
 }
