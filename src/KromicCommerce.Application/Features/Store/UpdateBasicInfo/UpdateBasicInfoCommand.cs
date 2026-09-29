@@ -10,4 +10,6 @@ public sealed record UpdateBasicInfoCommand(
     string? FacebookUrl,
     string? InstagramUrl,
     string? TwitterUrl,
-    string? YoutubeUrl) : ICommand<AdminBusinessSettingsResponse>;
+    string? YoutubeUrl,
+    string? WhatsAppNumber,
+    string? LinkedInUrl) : ICommand<AdminBusinessSettingsResponse>;

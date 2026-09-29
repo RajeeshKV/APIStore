@@ -56,7 +56,8 @@ public sealed class AdminSettingsController(IMediator mediator) : ControllerBase
         var result = await mediator.Send(new UpdateBasicInfoCommand(
             request.BusinessName, request.LegalName, request.WebsiteUrl,
             request.SupportEmail, request.SupportPhone, request.Address,
-            request.FacebookUrl, request.InstagramUrl, request.TwitterUrl, request.YoutubeUrl),
+            request.FacebookUrl, request.InstagramUrl, request.TwitterUrl, request.YoutubeUrl,
+            request.WhatsAppNumber, request.LinkedInUrl),
             cancellationToken);
 
         return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();

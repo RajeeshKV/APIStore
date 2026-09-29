@@ -24,7 +24,8 @@ internal sealed class UpdateBasicInfoHandler(
             command.SupportEmail, command.SupportPhone, command.Address);
         settings.UpdateSocialLinks(
             command.FacebookUrl, command.InstagramUrl,
-            command.TwitterUrl, command.YoutubeUrl);
+            command.TwitterUrl, command.YoutubeUrl,
+            command.WhatsAppNumber, command.LinkedInUrl);
 
         await db.SaveChangesAsync(cancellationToken);
         settingsService.Invalidate();

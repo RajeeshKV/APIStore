@@ -22,6 +22,8 @@ public sealed record AdminBusinessSettingsResponse(
     string? InstagramUrl,
     string? TwitterUrl,
     string? YoutubeUrl,
+    string? WhatsAppNumber,
+    string? LinkedInUrl,
     DateTime UpdatedAtUtc,
     DeliverySettingsDto Delivery,
     StoreAuthSettingsDto Auth,

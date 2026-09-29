@@ -23,5 +23,7 @@ internal sealed class UpdateBasicInfoValidator : AbstractValidator<UpdateBasicIn
         RuleFor(x => x.InstagramUrl).MaximumLength(512).When(x => x.InstagramUrl is not null);
         RuleFor(x => x.TwitterUrl).MaximumLength(512).When(x => x.TwitterUrl is not null);
         RuleFor(x => x.YoutubeUrl).MaximumLength(512).When(x => x.YoutubeUrl is not null);
+        RuleFor(x => x.WhatsAppNumber).MaximumLength(20).When(x => x.WhatsAppNumber is not null);
+        RuleFor(x => x.LinkedInUrl).MaximumLength(512).When(x => x.LinkedInUrl is not null);
     }
 }

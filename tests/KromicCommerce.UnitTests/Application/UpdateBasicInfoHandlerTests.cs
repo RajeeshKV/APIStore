@@ -13,7 +13,7 @@ public sealed class UpdateBasicInfoHandlerTests
         new(_db.Object, _svc.Object, NullLogger<UpdateBasicInfoHandler>.Instance);
 
     private static UpdateBasicInfoCommand ValidCommand() =>
-        new("New Store", null, null, null, null, null, null, null, null, null);
+        new("New Store", null, null, null, null, null, null, null, null, null, null, null);
 
     [Fact]
     public async Task Returns_not_found_when_settings_missing()
@@ -41,7 +41,7 @@ public sealed class UpdateBasicInfoHandlerTests
 
         var result = await CreateHandler().Handle(
             new UpdateBasicInfoCommand("New Store", "Legal Inc", "https://example.com",
-                "s@e.com", "+91999", "Addr", null, null, null, null),
+                "s@e.com", "+91999", "Addr", null, null, null, null, null, null),
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();

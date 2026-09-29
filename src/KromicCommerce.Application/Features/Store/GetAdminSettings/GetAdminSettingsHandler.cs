@@ -45,6 +45,8 @@ internal static class AdminSettingsMapper
             InstagramUrl: s.InstagramUrl,
             TwitterUrl: s.TwitterUrl,
             YoutubeUrl: s.YoutubeUrl,
+            WhatsAppNumber: s.WhatsAppNumber,
+            LinkedInUrl: s.LinkedInUrl,
             UpdatedAtUtc: s.UpdatedAtUtc,
             Delivery: new DeliverySettingsDto(
                 s.Delivery.FlatFeeAmount,
