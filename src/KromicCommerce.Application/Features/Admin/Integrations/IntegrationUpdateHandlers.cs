@@ -15,7 +15,7 @@ public sealed record UpdateRazorpayConfigCommand(
     bool Enabled, string KeyId, string KeySecret, string WebhookSecret) : ICommand;
 
 public sealed record UpdateGoogleOAuthConfigCommand(
-    bool Enabled, string ClientId, string ClientSecret, string RedirectUri) : ICommand;
+    bool Enabled, string ClientId, string ClientSecret) : ICommand;
 
 public sealed record UpdateSmsConfigCommand(
     bool Enabled, string Provider, Dictionary<string, string>? ProviderSettings) : ICommand;
@@ -59,6 +59,7 @@ internal sealed class UpdateGoogleOAuthConfigHandler(
     IApplicationDbContext db,
     IBusinessSettingsService settingsService,
     ISecretProtectionService secrets,
+    IOptions<AppPublicOptions> appOptions,
     ILogger<UpdateGoogleOAuthConfigHandler> logger)
     : ICommandHandler<UpdateGoogleOAuthConfigCommand>
 {
@@ -74,22 +75,24 @@ internal sealed class UpdateGoogleOAuthConfigHandler(
         // Encrypt the secret before it ever touches the database — never store plaintext
         var encryptedSecret = secrets.Protect(cmd.ClientSecret);
 
-        // Persist to BusinessSettings — this is the authoritative configuration store.
-        // The status endpoint reads from here; the OAuth flow reads from here.
-        settings.UpdateGoogleCredentials(cmd.ClientId, encryptedSecret, cmd.RedirectUri, cmd.Enabled);
+        // Compute the redirect URI from the backend's configured public base URL.
+        // The admin must register this exact URL in Google Cloud Console.
+        // It is derived from App__ApiBaseUrl — deterministic, not user-supplied.
+        var redirectUri = appOptions.Value.GoogleRedirectUri;
+
+        // Persist to BusinessSettings — authoritative configuration store.
+        // Status endpoint reads from here; OAuth flow reads from here.
+        settings.UpdateGoogleCredentials(cmd.ClientId, encryptedSecret, redirectUri, cmd.Enabled);
 
         await db.SaveChangesAsync(ct);
-
-        // Invalidate the settings cache so the next read sees the new credentials immediately
         settingsService.Invalidate();
 
-        // Optionally publish an event — purely for audit/observability, NOT as a config store
+        // Publish audit-only Outbox event — NOT a config store, credentials excluded
         db.OutboxEvents.Add(OutboxEvent.Create("GoogleOAuthConfigurationUpdated",
             System.Text.Json.JsonSerializer.Serialize(new
             {
                 cmd.Enabled,
                 ConfiguredAt = DateTime.UtcNow
-                // Never include ClientId, ClientSecret, or any credential in Outbox payload
             })));
         await db.SaveChangesAsync(ct);
 

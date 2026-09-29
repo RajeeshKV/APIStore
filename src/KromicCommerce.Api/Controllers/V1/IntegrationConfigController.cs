@@ -48,7 +48,7 @@ public sealed class IntegrationConfigController(IMediator mediator) : Controller
         [FromBody] UpdateGoogleOAuthConfigRequest request, CancellationToken ct)
     {
         var result = await mediator.Send(new UpdateGoogleOAuthConfigCommand(
-            request.Enabled, request.ClientId, request.ClientSecret, request.RedirectUri), ct);
+            request.Enabled, request.ClientId, request.ClientSecret), ct);
         return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
     }
 

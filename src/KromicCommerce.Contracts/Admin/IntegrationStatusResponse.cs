@@ -30,8 +30,7 @@ public sealed record UpdateGoogleOAuthConfigRequest(
     bool Enabled,
     string ClientId,
     /// <summary>Raw plaintext — encrypted before storage. Never logged or returned.</summary>
-    string ClientSecret,
-    string RedirectUri);
+    string ClientSecret);
 
 public sealed record UpdateSmsConfigRequest(
     bool Enabled,

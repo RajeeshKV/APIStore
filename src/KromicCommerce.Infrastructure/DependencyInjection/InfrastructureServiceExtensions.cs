@@ -91,6 +91,14 @@ public static class InfrastructureServiceExtensions
             bo.BootstrapSecret = app.Value.BootstrapSecret;
         });
 
+        // Bridge AppOptions.ApiBaseUrl → Application AppPublicOptions
+        // Handlers use this to compute Google redirect URI and Razorpay webhook URL
+        // without taking a direct dependency on Infrastructure.Configuration.
+        services.AddOptions<AppPublicOptions>().Configure<IOptions<AppOptions>>((apo, app) =>
+        {
+            apo.ApiBaseUrl = app.Value.ApiBaseUrl;
+        });
+
         // Bridge CacheOptions → Application CatalogCacheOptions
         services.AddOptions<CatalogCacheOptions>().Configure<IOptions<CacheOptions>>((cco, co) =>
         {

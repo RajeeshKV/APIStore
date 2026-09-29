@@ -1,6 +1,33 @@
 namespace KromicCommerce.Application.Options;
 
 /// <summary>
+/// Public application URL configuration bridged from AppOptions (Infrastructure).
+/// Used by Application-layer handlers to generate deterministic callback/webhook URLs
+/// without taking a direct dependency on Infrastructure.Configuration.
+/// </summary>
+public sealed class AppPublicOptions
+{
+    /// <summary>
+    /// The public-facing base URL of this backend deployment.
+    /// E.g. "https://backend.kromic.in" — no trailing slash.
+    /// Used to generate OAuth redirect URIs and webhook URLs shown to the admin.
+    /// </summary>
+    public string ApiBaseUrl { get; set; } = string.Empty;
+
+    /// <summary>Computed Google OAuth redirect URI the admin must register in Google Cloud Console.</summary>
+    public string GoogleRedirectUri =>
+        string.IsNullOrWhiteSpace(ApiBaseUrl)
+            ? string.Empty
+            : $"{ApiBaseUrl.TrimEnd('/')}/api/v1/auth/google/callback";
+
+    /// <summary>Computed Razorpay webhook URL the admin must register in the Razorpay Dashboard.</summary>
+    public string RazorpayWebhookUrl =>
+        string.IsNullOrWhiteSpace(ApiBaseUrl)
+            ? string.Empty
+            : $"{ApiBaseUrl.TrimEnd('/')}/api/v1/webhooks/payment";
+}
+
+/// <summary>
 /// Application-side view of Razorpay configuration status.
 /// Bridged from Infrastructure RazorpayOptions by InfrastructureServiceExtensions.
 /// Never contains raw secrets — only status flags and public identifiers.
