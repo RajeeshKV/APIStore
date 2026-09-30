@@ -321,7 +321,8 @@ Stock is concurrency-safe via PostgreSQL xmin. Cannot go negative. Reserved stoc
 | POST | `/api/v1/payments/verify` | Customer | Verify Razorpay payment after widget |
 | POST | `/api/v1/payments/webhook` | None (signed) | Razorpay webhook (idempotent) |
 
-**Checkout request:** `{ shippingAddress, paymentMethod, couponCode?, idempotencyKey? }`  
+**Checkout request:** `{ addressId, paymentMethod, couponCode?, idempotencyKey? }`
+`addressId` must be the ID of a saved address belonging to the authenticated customer. Checkout snapshots that address into the order, so later edits do not alter order history.
 `paymentMethod`: `"Razorpay"` or `"CashOnDelivery"`
 
 **Checkout response includes server-calculated:** `subtotal`, `shippingAmount`, `codFee`, `discountAmount`, `taxAmount`, `grandTotal`. Never trust client totals.

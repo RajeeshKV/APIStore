@@ -73,16 +73,7 @@ Content-Type: application/json
 
 ```json
 {
-  "shippingAddress": {
-    "fullName": "Jane Doe",
-    "phone": "9876543210",
-    "addressLine1": "123 MG Road",
-    "addressLine2": "Apt 4B",
-    "city": "Bengaluru",
-    "state": "Karnataka",
-    "postalCode": "560001",
-    "country": "IN"
-  },
+  "addressId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "paymentMethod": "Razorpay",
   "couponCode": null,
   "idempotencyKey": "a3f9c1d2-0e4b-4c7a-8f1e-2b3d5e6a7c8f"
@@ -91,6 +82,7 @@ Content-Type: application/json
 
 **Field notes:**
 
+- `addressId` — ID of the selected saved address from `GET /api/v1/customer/addresses`. It must belong to the authenticated customer and include a phone number.
 - `paymentMethod` — enum string, exactly `"Razorpay"` or `"CashOnDelivery"`. Case-sensitive.
 - `couponCode` — `null` if no coupon was applied.
 - `idempotencyKey` — generate a fresh `uuidv4` per checkout attempt and store it locally. If the request times out or the network drops, **resend the exact same key** — the server returns the original order instead of creating a duplicate.
@@ -162,8 +154,8 @@ const options = {
     }
   },
   prefill: {
-    name: shippingAddress.fullName,
-    contact: shippingAddress.phone,
+    name: `${selectedAddress.firstName} ${selectedAddress.lastName}`,
+    contact: selectedAddress.phone,
   },
   theme: { color: "#3399cc" }
 };

@@ -5,10 +5,11 @@ namespace KromicCommerce.Contracts.Orders;
 /// <summary>
 /// Customer-supplied checkout data.
 /// The server rejects any attempt to supply prices, discounts, shipping, or totals.
-/// Only shipping address and payment method are accepted from the client.
+/// Only a saved shipping address ID and payment method are accepted from the client.
 /// </summary>
 public sealed record CheckoutRequest(
-    ShippingAddressDto ShippingAddress,
+    /// <summary>Saved address ID. The address must belong to the authenticated customer.</summary>
+    Guid AddressId,
 
     /// <summary>Payment method: Razorpay or CashOnDelivery. COD availability is validated server-side.</summary>
     PaymentMethod PaymentMethod,

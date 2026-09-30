@@ -4,7 +4,7 @@ namespace KromicCommerce.Application.Features.Checkout;
 
 public sealed record CheckoutCommand(
     Guid CustomerId,
-    ShippingAddressDto ShippingAddress,
+    Guid AddressId,
     PaymentMethod PaymentMethod,
     string? CouponCode,
     string? IdempotencyKey) : ICommand<CheckoutResponse>;

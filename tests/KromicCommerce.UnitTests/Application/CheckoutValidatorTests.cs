@@ -7,12 +7,8 @@ public sealed class CheckoutValidatorTests
 {
     private readonly CheckoutValidator _validator = new();
 
-    private static ShippingAddressDto ValidAddress() =>
-        new("Jane Doe", "+919876543210", "123 Street", null,
-            "Mumbai", "Maharashtra", "400001", "IN");
-
     private static CheckoutCommand ValidCmd() =>
-        new(Guid.NewGuid(), ValidAddress(), PaymentMethod.Razorpay, null, null);
+        new(Guid.NewGuid(), Guid.NewGuid(), PaymentMethod.Razorpay, null, null);
 
     [Fact]
     public void Valid_command_passes()
@@ -30,37 +26,9 @@ public sealed class CheckoutValidatorTests
     }
 
     [Fact]
-    public void Empty_full_name_fails()
+    public void Empty_address_id_fails()
     {
-        var addr = ValidAddress() with { FullName = "" };
-        _validator.Validate(ValidCmd() with { ShippingAddress = addr }).IsValid.Should().BeFalse();
-    }
-
-    [Fact]
-    public void Invalid_phone_fails()
-    {
-        var addr = ValidAddress() with { Phone = "abc" };
-        _validator.Validate(ValidCmd() with { ShippingAddress = addr }).IsValid.Should().BeFalse();
-    }
-
-    [Theory]
-    [InlineData("IN")]
-    [InlineData("US")]
-    [InlineData("GB")]
-    public void Two_letter_country_passes(string country)
-    {
-        var addr = ValidAddress() with { Country = country };
-        _validator.Validate(ValidCmd() with { ShippingAddress = addr }).IsValid.Should().BeTrue();
-    }
-
-    [Theory]
-    [InlineData("India")]
-    [InlineData("I")]
-    [InlineData("")]
-    public void Invalid_country_fails(string country)
-    {
-        var addr = ValidAddress() with { Country = country };
-        _validator.Validate(ValidCmd() with { ShippingAddress = addr }).IsValid.Should().BeFalse();
+        _validator.Validate(ValidCmd() with { AddressId = Guid.Empty }).IsValid.Should().BeFalse();
     }
 
     [Fact]

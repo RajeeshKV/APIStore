@@ -11,7 +11,7 @@ namespace KromicCommerce.Api.Controllers.V1;
 /// <summary>
 /// Checkout and payment verification endpoints.
 /// Both require authentication — anonymous checkout is not supported in Phase 5.
-/// Server calculates all totals; the frontend only provides address and payment method.
+/// Server calculates all totals; the frontend provides a saved address ID and payment method.
 /// </summary>
 [ApiController]
 [ApiVersion("1.0")]
@@ -41,7 +41,7 @@ public sealed class CheckoutController(
 
         var result = await mediator.Send(new CheckoutCommand(
             userId.Value,
-            request.ShippingAddress,
+            request.AddressId,
             request.PaymentMethod,
             request.CouponCode,
             request.IdempotencyKey), ct);

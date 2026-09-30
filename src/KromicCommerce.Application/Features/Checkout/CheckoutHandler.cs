@@ -47,6 +47,25 @@ internal sealed class CheckoutHandler(
         }
 
         // -----------------------------------------------------------------------
+        // Saved address
+        // -----------------------------------------------------------------------
+        // Scope the lookup to the customer so an ID from another account cannot
+        // be used to expose or ship to someone else's address.
+        var customerAddress = await db.CustomerAddresses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                a => a.Id == command.AddressId && a.CustomerId == command.CustomerId,
+                cancellationToken);
+
+        if (customerAddress is null)
+            return Result.Failure<CheckoutResponse>(
+                Error.NotFound("ADDRESS_NOT_FOUND", "Address not found."));
+
+        if (string.IsNullOrWhiteSpace(customerAddress.Phone))
+            return Result.Failure<CheckoutResponse>(
+                Error.Validation("ADDRESS_PHONE_REQUIRED", "The selected address must include a phone number."));
+
+        // -----------------------------------------------------------------------
         // Cart
         // -----------------------------------------------------------------------
         var cart = await db.Carts
@@ -205,10 +224,10 @@ internal sealed class CheckoutHandler(
         // Build and persist Order
         // -----------------------------------------------------------------------
         var address = ShippingAddress.Create(
-            command.ShippingAddress.FullName, command.ShippingAddress.Phone,
-            command.ShippingAddress.AddressLine1, command.ShippingAddress.AddressLine2,
-            command.ShippingAddress.City, command.ShippingAddress.State,
-            command.ShippingAddress.PostalCode, command.ShippingAddress.Country);
+            customerAddress.FullName, customerAddress.Phone,
+            customerAddress.AddressLine1, customerAddress.AddressLine2,
+            customerAddress.City, customerAddress.State,
+            customerAddress.PostalCode, customerAddress.CountryCode);
 
         var orderNumber = GenerateOrderNumber();
         var appliedCoupon = promotionResult.IsValid ? promotionResult.CouponCode : null;
