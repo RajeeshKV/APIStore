@@ -179,19 +179,19 @@ public sealed class InventoryItemTests
     }
 
     // -----------------------------------------------------------------------
-    // RestoreForCancellation — the two states
+    // RestoreSoldUnits — returning previously-sold stock
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// The normal case: the order was never confirmed, so its units are still reserved and
-    /// only need to leave the Reserved bucket.
+    /// The order was never confirmed, so its units are still reserved and only need to leave
+    /// the Reserved bucket. They were always inside OnHand, so OnHand must not change.
     /// </summary>
     [Fact]
-    public void Cancelling_an_unconfirmed_order_returns_reserved_units_to_available()
+    public void Releasing_still_reserved_units_leaves_on_hand_untouched()
     {
         var item = New(10, reserved: 2);
 
-        item.RestoreForCancellation(2);
+        item.Release(2);
 
         item.Reserved.Should().Be(0);
         item.OnHand.Should().Be(10, "reserved units were always inside OnHand and must stay there");
@@ -199,17 +199,17 @@ public sealed class InventoryItemTests
     }
 
     /// <summary>
-    /// The bug: the order WAS confirmed, so FinalizeReservation already deducted the units from
-    /// OnHand. A plain Release throws here (Reserved is 0) and the units are never returned.
+    /// The order WAS confirmed, so FinalizeReservation already deducted the units from OnHand.
+    /// RestoreSoldUnits puts exactly those units back.
     /// </summary>
     [Fact]
-    public void Cancelling_a_confirmed_order_puts_sold_units_back_on_hand()
+    public void Restoring_sold_units_puts_them_back_on_hand()
     {
         var item = New(10, reserved: 2);
         item.FinalizeReservation(2);
         item.OnHand.Should().Be(8);
 
-        item.RestoreForCancellation(2);
+        item.RestoreSoldUnits(2);
 
         item.OnHand.Should().Be(10);
         item.Reserved.Should().Be(0);
@@ -218,8 +218,9 @@ public sealed class InventoryItemTests
     }
 
     /// <summary>
-    /// The regression this method exists for: with a confirmed order, Release cannot restore
-    /// anything. Documenting the contrast makes the reason for RestoreForCancellation explicit.
+    /// The bug RestoreSoldUnits exists to avoid: with a confirmed order, plain Release cannot
+    /// return anything because Reserved is already 0. Documenting the contrast explains why
+    /// the caller must choose the operation based on persisted order state.
     /// </summary>
     [Fact]
     public void Plain_Release_cannot_restore_a_confirmed_order_and_throws_instead()
@@ -230,29 +231,54 @@ public sealed class InventoryItemTests
         var act = () => item.Release(2);
 
         act.Should().Throw<InvalidOperationException>(
-            "this is why cancellation uses RestoreForCancellation rather than Release");
+            "this is why a confirmed order is restored with RestoreSoldUnits, not Release");
         item.OnHand.Should().Be(8, "the failed restore must not have changed anything");
     }
 
     /// <summary>
-    /// A mixed order — some lines confirmed, some not — splits the quantity across the two
-    /// buckets. Getting this wrong either duplicates or loses units.
+    /// THE REGRESSION THAT MOTIVATED THE LIFECYCLE STATE.
+    ///
+    /// The old implementation inferred how much to return from the current Reserved bucket
+    /// (fromReserved = min(quantity, Reserved), remainder treated as sold). That silently
+    /// misattributes an unrelated reservation to this order.
+    ///
+    /// Here Order A sold 2 units, then a restock put OnHand back to 10, and THEN Order B
+    /// reserved 3 units. If Order A's 2 units are restored with the old inference, it would
+    /// take 2 of Order B's 3 reserved units out of Reserved and add 0 to OnHand — corrupting
+    /// both orders.
+    ///
+    /// With explicit RestoreSoldUnits, the caller says "these 2 units were sold"; the foreign
+    /// reservation in Reserved is never touched.
     /// </summary>
     [Fact]
-    public void A_mixed_reserved_and_sold_restore_splits_correctly()
+    public void Restoring_sold_units_does_not_consume_an_unrelated_reservation()
     {
-        // 2 units sold (were reserved then finalised), 3 units still reserved.
-        var item = New(10, reserved: 3);
-        item.FinalizeReservation(2);
-        // OnHand 8, Reserved 1  (one of the three was sold with the two)
-        item.OnHand.Should().Be(8);
-        item.Reserved.Should().Be(1);
+        var item = New(10, reserved: 2);
+        item.FinalizeReservation(2);          // Order A sells 2  -> OnHand 8, Reserved 0
+        item.SetOnHand(10);                   // restock          -> OnHand 10
+        item.Reserve(3);                      // Order B reserves -> Reserved 3
 
-        // Restore 3: 1 comes out of Reserved, 2 are added back to OnHand.
-        item.RestoreForCancellation(3);
+        item.RestoreSoldUnits(2);             // Order A cancelled
 
-        item.Reserved.Should().Be(0);
+        item.OnHand.Should().Be(12, "Order A's 2 sold units are physically back on the shelf");
+        item.Reserved.Should().Be(3, "Order B's reservation must be completely untouched");
+        item.Available.Should().Be(9);
+    }
+
+    /// <summary>
+    /// The mirror of the above: an order that never confirmed must not put its units back into
+    /// OnHand, because they were never removed from it. Using the sold-restore path for a
+    /// still-reserved order would inflate stock.
+    /// </summary>
+    [Fact]
+    public void Restoring_a_still_reserved_order_does_not_inflate_on_hand()
+    {
+        var item = New(10, reserved: 2);
+
+        item.Release(2);
+
         item.OnHand.Should().Be(10);
+        item.Available.Should().Be(10);
     }
 
     [Fact]
@@ -308,7 +334,7 @@ public sealed class InventoryItemTests
     {
         var item = New(10, reserved: 2);
         item.FinalizeReservation(2);
-        item.RestoreForCancellation(2);
+        item.RestoreSoldUnits(2);
         item.OnHand.Should().Be(10);
 
         // A third restore would require units the order never consumed. OnHand would climb,
@@ -325,7 +351,7 @@ public sealed class InventoryItemTests
     {
         var item = New(10, reserved: 2);
 
-        var act = () => item.RestoreForCancellation(quantity);
+        var act = () => item.RestoreSoldUnits(quantity);
 
         act.Should().Throw<ArgumentException>();
     }

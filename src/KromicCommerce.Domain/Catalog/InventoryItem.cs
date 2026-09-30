@@ -124,6 +124,12 @@ public sealed class InventoryItem : Entity
     /// mutating any of them. Without it, consuming line 1 and then failing on line 2 leaves a
     /// half-applied change that the caller can only abandon by not persisting — which is
     /// fragile, because the loaded entities stay dirty in the change tracker.
+    ///
+    /// PRE-CHECK ONLY. It reads the current Reserved value and is subject to a
+    /// time-of-check/time-of-use race. The actual concurrency guarantee is the xmin token on
+    /// this entity: <see cref="FinalizeReservation"/> mutates in memory, and the UPDATE it
+    /// produces is rejected by PostgreSQL if another transaction changed this row in between,
+    /// raising <c>DbUpdateConcurrencyException</c>.
     /// </summary>
     public bool CanFinalizeReservation(int quantity) =>
         quantity > 0 && Reserved >= quantity;
@@ -142,52 +148,49 @@ public sealed class InventoryItem : Entity
     }
 
     /// <summary>
-    /// Returns <paramref name="quantity"/> units to sellable stock when an order is cancelled.
-    ///
-    /// A unit can be in either of two states at cancellation time, and the two need different
-    /// bookkeeping:
-    ///   - Still <b>reserved</b> (order was never confirmed): the unit is inside OnHand and must
-    ///     come out of Reserved only.
-    ///   - Already <b>finalised</b> (order was confirmed, so the unit was deducted from OnHand
-    ///     by FinalizeReservation): the unit must be added back to OnHand.
-    ///
-    /// Calling plain <see cref="Release"/> for a finalised order throws, because Reserved is
-    /// already 0 — which previously left a cancelled-and-refunded confirmed order with its
-    /// units permanently missing from sellable stock. This method handles both states in one
-    /// call so callers do not need to know which one they are in.
-    ///
-    /// Throws if more units are restored than the order could have consumed
-    /// (<c>OnHand + quantity</c> would overflow), which guards against a double-apply.
-    /// </summary>
-    /// <summary>
-    /// Reports whether <see cref="RestoreForCancellation"/> would currently succeed, without
+    /// Reports whether <see cref="RestoreSoldUnits"/> would currently succeed, without
     /// changing anything. Lets a caller validate every line of a multi-line order before
     /// restoring any of them, so a later failure cannot leave a half-applied restore.
+    ///
+    /// This is a PRE-CHECK ONLY. It reads current numbers and is therefore subject to a
+    /// time-of-check/time-of-use race; <see cref="RestoreSoldUnits"/> is the operation that
+    /// actually moves stock, and the write itself is guarded by the xmin concurrency token.
     /// </summary>
-    public bool CanRestoreForCancellation(int quantity)
+    public bool CanRestoreSoldUnits(int quantity)
     {
         if (quantity <= 0) return false;
-        var fromSold = quantity - Math.Min(quantity, Reserved);
-        return OnHand <= int.MaxValue - fromSold;
+        return OnHand <= int.MaxValue - quantity;
     }
 
-    public void RestoreForCancellation(int quantity)
+    /// <summary>
+    /// Returns <paramref name="quantity"/> physically-sold units to sellable stock.
+    ///
+    /// Use ONLY for units that were previously deducted from OnHand by
+    /// <see cref="FinalizeReservation"/> — that is, for an order line whose persisted
+    /// <c>OrderItem.InventoryStatus</c> is Finalized.
+    ///
+    /// The caller MUST pass the quantity that was finalized for that specific order line
+    /// (<c>OrderItem.InventoryQuantity</c>). This method deliberately does NOT look at
+    /// <see cref="Reserved"/> to work out how much to put back. The previous implementation
+    /// inferred the split (<c>fromReserved = min(qty, Reserved)</c>, remainder sold), which
+    /// silently misattributed any unrelated reservation that happened to be sitting in the
+    /// Reserved bucket to this order — restoring units that belonged to somebody else and
+    /// stranding this order's own units. The historical split now lives on the order line,
+    /// where it is unambiguous and per-order.
+    ///
+    /// Idempotency is the caller's responsibility (via <c>OrderItem.CanRestoreInventory</c>),
+    /// because only the order line knows whether these units were already returned.
+    /// </summary>
+    public void RestoreSoldUnits(int quantity)
     {
         if (quantity <= 0)
             throw new ArgumentException("Quantity must be > 0.", nameof(quantity));
 
-        // Units that were still reserved are already inside OnHand, so they only need to leave
-        // the Reserved bucket. Anything beyond Reserved had been deducted by FinalizeReservation
-        // and has to be physically put back on the shelf.
-        var fromReserved = Math.Min(quantity, Reserved);
-        var fromSold = quantity - fromReserved;
-
-        if (OnHand > int.MaxValue - fromSold)
+        if (OnHand > int.MaxValue - quantity)
             throw new InvalidOperationException(
                 "Restoring this quantity would overflow on-hand stock.");
 
-        Reserved -= fromReserved;
-        OnHand += fromSold;
+        OnHand += quantity;
         UpdatedAt = DateTime.UtcNow;
     }
 

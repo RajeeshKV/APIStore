@@ -144,6 +144,28 @@ public sealed class StoreAuthSettings : ValueObject
             GoogleRedirectUri = null
         };
 
+    /// <summary>
+    /// Copies every value from <paramref name="other"/> into this instance, in place.
+    ///
+    /// Required for EF Core owned entities — see the equivalent method on DeliverySettings for
+    /// why replacing the reference silently loses the write.
+    /// </summary>
+    internal void ApplyFrom(StoreAuthSettings other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+
+        GoogleOAuthEnabled = other.GoogleOAuthEnabled;
+        EmailPasswordEnabled = other.EmailPasswordEnabled;
+        MobileOtpEnabled = other.MobileOtpEnabled;
+        OtpExpiryMinutes = other.OtpExpiryMinutes;
+        OtpResendCooldownSeconds = other.OtpResendCooldownSeconds;
+        OtpMaxAttempts = other.OtpMaxAttempts;
+        SmsProvider = other.SmsProvider;
+        GoogleClientId = other.GoogleClientId;
+        EncryptedGoogleClientSecret = other.EncryptedGoogleClientSecret;
+        GoogleRedirectUri = other.GoogleRedirectUri;
+    }
+
     protected override IEnumerable<object?> GetEqualityComponents()
     {
         yield return GoogleOAuthEnabled;

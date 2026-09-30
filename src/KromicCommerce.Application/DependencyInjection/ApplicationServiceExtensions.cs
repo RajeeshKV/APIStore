@@ -32,6 +32,9 @@ public static class ApplicationServiceExtensions
         // Order workflow services — shared so the customer and admin cancellation paths
         // cannot diverge in their refund-before-cancel semantics.
         services.AddScoped<Features.Orders.OrderCancellationService>();
+        // Shared by cancellation and the payment-failure release so both restore stock from the
+        // persisted per-order-item lifecycle instead of inferring it from current counters.
+        services.AddScoped<Services.OrderInventoryRestorer>();
         services.AddScoped<ICheckoutSummaryService, Services.CheckoutSummaryService>();
 
         return services;

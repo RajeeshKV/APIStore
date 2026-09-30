@@ -1,4 +1,6 @@
 using KromicCommerce.Application.Abstractions.Payments;
+using KromicCommerce.Application.Abstractions.Catalog;
+using KromicCommerce.Application.Services;
 using KromicCommerce.Application.Features.Checkout;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -24,6 +26,10 @@ public sealed class CheckoutAddressAuthorizationTests
             Mock.Of<IBusinessSettingsService>(),
             Mock.Of<ICheckoutSummaryService>(),
             Mock.Of<IPaymentGateway>(),
+            new OrderInventoryRestorer(
+                db.Object,
+                Mock.Of<ICatalogCacheService>(),
+                NullLogger<OrderInventoryRestorer>.Instance),
             NullLogger<CheckoutHandler>.Instance);
 
         var result = await handler.Handle(

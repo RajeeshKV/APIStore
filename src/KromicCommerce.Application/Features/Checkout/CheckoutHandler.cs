@@ -1,5 +1,6 @@
 using System.Text.Json;
 using KromicCommerce.Application.Abstractions.Commerce;
+using KromicCommerce.Application.Services;
 using KromicCommerce.Domain.Promotions;
 
 namespace KromicCommerce.Application.Features.Checkout;
@@ -28,6 +29,7 @@ internal sealed class CheckoutHandler(
     IBusinessSettingsService businessSettings,
     ICheckoutSummaryService summaryService,
     IPaymentGateway paymentGateway,
+    OrderInventoryRestorer inventoryRestorer,
     ILogger<CheckoutHandler> logger)
     : ICommandHandler<CheckoutCommand, CheckoutResponse>
 {
@@ -135,6 +137,11 @@ internal sealed class CheckoutHandler(
             .Where(inv => productIds.Contains(inv.ProductId))
             .ToListAsync(cancellationToken);
 
+        // Remember exactly what was reserved for which line, so the persisted order line can record
+        // it. Later steps (confirmation, cancellation, payment failure) read that record instead
+        // of inferring what happened from the current OnHand/Reserved counters.
+        var reservedQuantities = new Dictionary<(Guid ProductId, Guid? VariantId), int>();
+
         foreach (var line in summary.Items)
         {
             var inv = inventoryItems.FirstOrDefault(i =>
@@ -148,6 +155,8 @@ internal sealed class CheckoutHandler(
                     return Result.Failure<CheckoutResponse>(
                         Error.Conflict("INSUFFICIENT_INVENTORY", ex.Message));
                 }
+
+                reservedQuantities[(line.ProductId, line.VariantId)] = line.Quantity;
             }
         }
 
@@ -179,6 +188,13 @@ internal sealed class CheckoutHandler(
                 order.Id, line.ProductId, line.VariantId,
                 line.ProductName, line.VariantDescription, line.Sku,
                 line.UnitPrice, line.Quantity);
+
+            // Record the inventory lifecycle for this line. A product with no inventory row is
+            // not stock-tracked and stays Untracked, which every later step treats as
+            // "nothing to consume or restore".
+            if (reservedQuantities.TryGetValue((line.ProductId, line.VariantId), out var reservedQty))
+                oi.MarkInventoryReserved(reservedQty);
+
             order.AddItem(oi);
             db.OrderItems.Add(oi);
         }
@@ -239,6 +255,9 @@ internal sealed class CheckoutHandler(
                 order.MarkFailed();
                 ReleaseReservations(summary, inventoryItems);
                 await db.SaveChangesAsync(cancellationToken);
+                await inventoryRestorer.InvalidateCachesAsync(
+                    reservedQuantities.Keys.Select(k => k.ProductId).Distinct().ToList(),
+                    cancellationToken);
                 return Result.Failure<CheckoutResponse>(
                     Error.ServiceUnavailable("PAYMENT_INITIALIZATION_FAILED",
                         "Online payment could not be initialized. Please try again later."));
@@ -256,6 +275,13 @@ internal sealed class CheckoutHandler(
         // Clear cart
         cart.Clear();
         await db.SaveChangesAsync(cancellationToken);
+
+        // Reserving stock lowers Available (= OnHand - Reserved), so the cached availability
+        // projections are already stale. Invalidated after the commit — doing it earlier could
+        // repopulate the cache from a transaction that then rolled back.
+        await inventoryRestorer.InvalidateCachesAsync(
+            reservedQuantities.Keys.Select(k => k.ProductId).Distinct().ToList(),
+            cancellationToken);
 
         logger.LogInformation(
             "Checkout completed. OrderId: {OrderId} Subtotal: {Subtotal} Discount: {Discount} " +

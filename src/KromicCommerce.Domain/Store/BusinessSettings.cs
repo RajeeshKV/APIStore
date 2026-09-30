@@ -141,11 +141,17 @@ public sealed class BusinessSettings : AuditableEntity
 
     public void SetLogoUrl(string? url) => LogoUrl = url?.Trim();
 
-    public void UpdateTax(TaxSettings tax) =>
-        Tax = tax ?? throw new ArgumentNullException(nameof(tax));
+    public void UpdateTax(TaxSettings tax)
+    {
+        ArgumentNullException.ThrowIfNull(tax);
+        Tax.ApplyFrom(tax);
+    }
 
-    public void UpdateDelivery(DeliverySettings delivery) =>
-        Delivery = delivery ?? throw new ArgumentNullException(nameof(delivery));
+    public void UpdateDelivery(DeliverySettings delivery)
+    {
+        ArgumentNullException.ThrowIfNull(delivery);
+        Delivery.ApplyFrom(delivery);
+    }
 
     /// <summary>
     /// Toggles cash-on-delivery availability without touching any other shipping setting.
@@ -153,16 +159,29 @@ public sealed class BusinessSettings : AuditableEntity
     /// integrations screen needs — it must never construct a partially-populated
     /// DeliverySettings and overwrite the fee or delivery-day estimates.
     /// </summary>
-    public void SetCodEnabled(bool enabled) => Delivery = Delivery.WithCodEnabled(enabled);
+    public void SetCodEnabled(bool enabled)
+    {
+        var updated = Delivery.WithCodEnabled(enabled);
+        Delivery.ApplyFrom(updated);
+    }
 
-    public void UpdateAuth(StoreAuthSettings auth) =>
-        Auth = auth ?? throw new ArgumentNullException(nameof(auth));
+    public void UpdateAuth(StoreAuthSettings auth)
+    {
+        ArgumentNullException.ThrowIfNull(auth);
+        Auth.ApplyFrom(auth);
+    }
 
-    public void UpdateEmail(EmailSettings email) =>
-        Email = email ?? throw new ArgumentNullException(nameof(email));
+    public void UpdateEmail(EmailSettings email)
+    {
+        ArgumentNullException.ThrowIfNull(email);
+        Email.ApplyFrom(email);
+    }
 
-    public void UpdateSeo(SeoSettings seo) =>
-        Seo = seo ?? throw new ArgumentNullException(nameof(seo));
+    public void UpdateSeo(SeoSettings seo)
+    {
+        ArgumentNullException.ThrowIfNull(seo);
+        Seo.ApplyFrom(seo);
+    }
 
     /// <summary>
     /// Persists encrypted Google OAuth credentials into the auth settings.
@@ -181,12 +200,14 @@ public sealed class BusinessSettings : AuditableEntity
         if (string.IsNullOrWhiteSpace(encryptedClientSecret))
             throw new ArgumentException("Encrypted Google Client Secret must not be empty.", nameof(encryptedClientSecret));
 
-        Auth = Auth.WithGoogleCredentials(clientId, encryptedClientSecret, redirectUri);
+        Auth.ApplyFrom(Auth.WithGoogleCredentials(clientId, encryptedClientSecret, redirectUri));
 
-        // Sync the enabled flag — can be set to false to keep credentials but disable the feature
+        // Sync the enabled flag — can be set to false to keep credentials but disable the feature.
+        // Values are read back from the (now updated) tracked Auth instance, not from a new object,
+        // so this stays an in-place mutation EF can actually persist.
         if (Auth.GoogleOAuthEnabled != enabled)
         {
-            Auth = StoreAuthSettings.Create(
+            Auth.ApplyFrom(StoreAuthSettings.Create(
                 googleOAuthEnabled: enabled,
                 emailPasswordEnabled: Auth.EmailPasswordEnabled,
                 mobileOtpEnabled: Auth.MobileOtpEnabled,
@@ -196,7 +217,7 @@ public sealed class BusinessSettings : AuditableEntity
                 smsProvider: Auth.SmsProvider,
                 googleClientId: Auth.GoogleClientId,
                 encryptedGoogleClientSecret: Auth.EncryptedGoogleClientSecret,
-                googleRedirectUri: Auth.GoogleRedirectUri);
+                googleRedirectUri: Auth.GoogleRedirectUri));
         }
     }
 
@@ -206,7 +227,7 @@ public sealed class BusinessSettings : AuditableEntity
     /// </summary>
     public void ClearGoogleCredentials()
     {
-        Auth = Auth.WithoutGoogleCredentials();
+        Auth.ApplyFrom(Auth.WithoutGoogleCredentials());
     }
 
     /// <summary>
@@ -226,12 +247,12 @@ public sealed class BusinessSettings : AuditableEntity
         if (string.IsNullOrWhiteSpace(encryptedWebhookSecret))
             throw new ArgumentException("Encrypted Webhook Secret must not be empty.", nameof(encryptedWebhookSecret));
 
-        Payment = Payment.WithCredentials(keyId, encryptedKeySecret, encryptedWebhookSecret, enabled);
+        Payment.ApplyFrom(Payment.WithCredentials(keyId, encryptedKeySecret, encryptedWebhookSecret, enabled));
     }
 
     /// <summary>Enables or disables Razorpay without changing credentials.</summary>
     public void SetPaymentEnabled(bool enabled)
     {
-        Payment = Payment.WithEnabled(enabled);
+        Payment.ApplyFrom(Payment.WithEnabled(enabled));
     }
 }

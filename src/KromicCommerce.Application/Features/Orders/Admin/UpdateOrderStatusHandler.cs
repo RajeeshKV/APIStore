@@ -1,5 +1,6 @@
 using System.Text.Json;
 using KromicCommerce.Application.Features.Orders.GetMyOrders;
+using KromicCommerce.Application.Services;
 using KromicCommerce.Contracts.Orders;
 
 namespace KromicCommerce.Application.Features.Orders.Admin;
@@ -7,6 +8,7 @@ namespace KromicCommerce.Application.Features.Orders.Admin;
 internal sealed class UpdateOrderStatusHandler(
     IApplicationDbContext db,
     OrderCancellationService cancellation,
+    OrderInventoryRestorer inventoryRestorer,
     ILogger<UpdateOrderStatusHandler> logger)
     : ICommandHandler<UpdateOrderStatusCommand, OrderResponse>
 {
@@ -34,6 +36,9 @@ internal sealed class UpdateOrderStatusHandler(
         // -----------------------------------------------------------------------
         // Standard status transitions
         // -----------------------------------------------------------------------
+        // Products whose stock actually moved, so the availability caches can be evicted after the
+        // commit. Declared outside the try because the cache step runs after it.
+        IReadOnlyList<Guid> consumedProductIds = [];
         try
         {
             switch (command.Status)
@@ -44,7 +49,7 @@ internal sealed class UpdateOrderStatusHandler(
                     // mutated at all and confirmation can be retried once the shortfall is
                     // resolved. Doing it in the other order would leave the in-memory order
                     // Confirmed with only some of its stock consumed.
-                    await FinalizeInventoryAsync(order, ct);
+                    consumedProductIds = await FinalizeInventoryAsync(order, ct);
                     order.Confirm();
                     break;
                 case OrderStatus.Processing:    order.MarkProcessing(); break;
@@ -70,6 +75,12 @@ internal sealed class UpdateOrderStatusHandler(
             BuildPayload(order, command)));
 
         await db.SaveChangesAsync(ct);
+
+        // Stock actually moved (units left Reserved and OnHand), so the cached availability
+        // projections are stale. Only after the commit — invalidating first could repopulate
+        // the cache from a transaction that then rolled back.
+        await inventoryRestorer.InvalidateCachesAsync(consumedProductIds, ct);
+
         logger.LogInformation("Order {OrderId} transitioned to {Status} by admin",
             command.OrderId, command.Status);
 
@@ -91,18 +102,30 @@ internal sealed class UpdateOrderStatusHandler(
     /// the order is already Confirmed, so re-confirming throws and the shortfall is permanent.
     /// The customer has paid at this point, so the recovery path is to retry confirmation or
     /// cancel (which refunds and releases) — both existing operations.
+    ///
+    /// Each line's persisted inventory status is moved Reserved -&gt; Finalized, recording
+    /// that these specific units were sold. That record is what a later cancellation reads to
+    /// decide it must add exactly <c>InventoryQuantity</c> back to OnHand, instead of guessing
+    /// from the current counters.
+    ///
+    /// Staging only — the single SaveChangesAsync in Handle commits the finalization, the order
+    /// transition and the outbox event together, so a multi-line order can never end up with
+    /// some lines finalized while the order stayed OrderPlaced.
     /// </summary>
-    private async Task FinalizeInventoryAsync(Order order, CancellationToken ct)
+    private async Task<IReadOnlyList<Guid>> FinalizeInventoryAsync(Order order, CancellationToken ct)
     {
-        var productIds = order.Items.Select(i => i.ProductId).ToList();
+        var trackable = order.Items.Where(i => i.CanRestoreInventory).ToList();
+        if (trackable.Count == 0) return [];
+
+        var productIds = trackable.Select(i => i.ProductId).ToList();
         var inventoryItems = await db.InventoryItems
             .Where(i => productIds.Contains(i.ProductId))
             .ToListAsync(ct);
 
-        // Pair each line with the inventory row that owns its stock, skipping products that have
+// Pair each line with the inventory row that owns its stock, skipping products that have
         // no row at all — those are not stock-tracked, which is legitimate for products created
         // before inventory tracking existed and must not block confirmation.
-        var targets = order.Items
+        var targets = trackable
             .Select(item => new
             {
                 Item = item,
@@ -113,24 +136,43 @@ internal sealed class UpdateOrderStatusHandler(
             .Select(t => new { t.Item, Inventory = t.Inventory! })
             .ToList();
 
+        // A line that has already been finalised cannot be consumed again. The order state
+        // machine normally prevents re-confirmation, but a line already moved to Finalized
+        // would otherwise be double-consumed and permanently over-deduct from OnHand.
+        var notReserved = trackable
+            .Where(i => i.InventoryStatus != OrderItemInventoryStatus.Reserved)
+            .ToList();
+        if (notReserved.Count > 0)
+            throw new InvalidOperationException(
+                $"Cannot confirm order {order.OrderNumber}: line {notReserved[0].Id} is " +
+                $"{notReserved[0].InventoryStatus}, not Reserved. The order was left " +
+                "unconfirmed; its inventory was already consumed or returned.");
+
         // Validate every line BEFORE consuming any. Consuming line by line would leave a
         // half-applied change if a later line fell short, and those mutated entities would
         // remain dirty in the change tracker.
         foreach (var target in targets)
         {
-            if (!target.Inventory.CanFinalizeReservation(target.Item.Quantity))
+            // Finalize exactly the quantity recorded for this line, which is what a later
+            // cancellation will hand back.
+            if (!target.Inventory.CanFinalizeReservation(target.Item.InventoryQuantity))
             {
                 throw new InvalidOperationException(
                     $"Cannot confirm order {order.OrderNumber}: only " +
                     $"{target.Inventory.Reserved} units are reserved for product " +
-                    $"{target.Item.ProductId} but {target.Item.Quantity} are required. " +
+                    $"{target.Item.ProductId} but {target.Item.InventoryQuantity} are required. " +
                     "The order was left unconfirmed; resolve the stock shortfall and retry.");
             }
         }
 
         // Every line is satisfiable, so this cannot partially fail.
         foreach (var target in targets)
-            target.Inventory.FinalizeReservation(target.Item.Quantity);
+        {
+            target.Inventory.FinalizeReservation(target.Item.InventoryQuantity);
+            target.Item.MarkInventoryFinalized();
+        }
+
+        return targets.Select(t => t.Item.ProductId).Distinct().ToList();
     }
 
     // -----------------------------------------------------------------------

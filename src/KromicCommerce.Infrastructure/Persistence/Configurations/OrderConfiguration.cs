@@ -76,6 +76,24 @@ internal sealed class OrderItemConfiguration : IEntityTypeConfiguration<OrderIte
         builder.Property(i => i.Quantity).IsRequired();
         builder.Property(i => i.LineTotal).IsRequired().HasColumnType("numeric(12,2)");
 
+        // Inventory lifecycle — the per-order record of what happened to this line's units.
+        // Drives restoration instead of inferring it from current OnHand/Reserved.
+        builder.Property(i => i.InventoryStatus)
+            .IsRequired()
+            .HasConversion<string>()
+            .HasMaxLength(32)
+            .HasDefaultValue(OrderItemInventoryStatus.Untracked);
+        builder.Property(i => i.InventoryQuantity).IsRequired().HasDefaultValue(0);
+
+        // xmin concurrency token. Two concurrent cancellations of the same order both try to
+        // move this line to Restored; PostgreSQL accepts only the first UPDATE, so the loser
+        // gets DbUpdateConcurrencyException rather than restoring the same units twice.
+        builder.Property(i => i.Version)
+            .HasColumnName("xmin")
+            .HasColumnType("xid")
+            .IsRowVersion()
+            .ValueGeneratedOnAddOrUpdate();
+
         builder.HasIndex(i => i.OrderId).HasDatabaseName("ix_order_items_order");
     }
 }

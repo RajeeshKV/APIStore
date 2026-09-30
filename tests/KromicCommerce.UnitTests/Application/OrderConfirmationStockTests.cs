@@ -1,5 +1,8 @@
 using System.Linq.Expressions;
 using KromicCommerce.Application.Abstractions.Payments;
+using KromicCommerce.Application.Abstractions.Catalog;
+using KromicCommerce.Application.Services;
+using KromicCommerce.Domain.Catalog;
 using KromicCommerce.Application.Features.Orders;
 using KromicCommerce.Application.Features.Orders.Admin;
 using KromicCommerce.Contracts.Orders;
@@ -24,6 +27,7 @@ public sealed class OrderConfirmationStockTests
 {
     private readonly Mock<IApplicationDbContext> _db = new();
     private readonly Mock<IPaymentGateway> _gateway = new();
+    private readonly Mock<ICatalogCacheService> _cache = new();
 
     // -----------------------------------------------------------------------
     // Consumption
@@ -251,7 +255,11 @@ public sealed class OrderConfirmationStockTests
     private UpdateOrderStatusHandler BuildHandler()
         => new(_db.Object,
                new OrderCancellationService(_db.Object, _gateway.Object,
+                   new OrderInventoryRestorer(_db.Object, _cache.Object,
+                       NullLogger<OrderInventoryRestorer>.Instance),
                    NullLogger<OrderCancellationService>.Instance),
+               new OrderInventoryRestorer(_db.Object, _cache.Object,
+                   NullLogger<OrderInventoryRestorer>.Instance),
                NullLogger<UpdateOrderStatusHandler>.Instance);
 
     /// <summary>
@@ -274,8 +282,15 @@ public sealed class OrderConfirmationStockTests
 
         foreach (var (productId, variantId, qty) in lines)
         {
-            order.AddItem(OrderItem.Create(
-                order.Id, productId, variantId, "Widget", null, "SKU-1", 100m, qty));
+            var item = OrderItem.Create(
+                order.Id, productId, variantId, "Widget", null, "SKU-1", 100m, qty);
+
+            // Checkout records the reservation on each line. Confirmation now consumes exactly
+            // this recorded quantity, so the fixture must reproduce what checkout persists —
+            // otherwise the lines stay Untracked and confirmation legitimately skips them.
+            item.MarkInventoryReserved(qty);
+
+            order.AddItem(item);
         }
 
         return order;
@@ -288,6 +303,11 @@ public sealed class OrderConfirmationStockTests
 
         var invMock = BuildDbSet(inventory.ToList());
         _db.Setup(d => d.InventoryItems).Returns(invMock.Object);
+
+        // Confirming stock evicts the cached availability projections, which resolves each
+        // affected product's slug. Wire Products so that lookup runs against a real (empty)
+        // queryable rather than an unconfigured mock that yields null and throws.
+        _db.Setup(d => d.Products).Returns(BuildDbSet(new List<Product>()).Object);
 
         // The handler builds its response after the transition, which resolves the display
         // image for each line. Empty is fine — no line has a product image.

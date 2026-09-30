@@ -1,4 +1,6 @@
 using KromicCommerce.Application.Abstractions.Payments;
+using KromicCommerce.Application.Abstractions.Catalog;
+using KromicCommerce.Application.Services;
 using KromicCommerce.Application.Features.Orders;
 using KromicCommerce.Application.Features.Orders.CancelOrder;
 using KromicCommerce.Application.Features.Orders.GetMyOrders;
@@ -73,7 +75,11 @@ public sealed class OrderAuthorizationTests
         SetupOrderItems([]);
 
         var cancellation = new OrderCancellationService(
-            _db.Object, new Mock<IPaymentGateway>().Object, NullLogger<OrderCancellationService>.Instance);
+            _db.Object, new Mock<IPaymentGateway>().Object,
+            new OrderInventoryRestorer(
+                _db.Object, new Mock<ICatalogCacheService>().Object,
+                NullLogger<OrderInventoryRestorer>.Instance),
+            NullLogger<OrderCancellationService>.Instance);
         var handler = new CancelOrderHandler(_db.Object, cancellation);
         var result = await handler.Handle(
             new CancelOrderCommand(orderId, attackerId, null), // attacker

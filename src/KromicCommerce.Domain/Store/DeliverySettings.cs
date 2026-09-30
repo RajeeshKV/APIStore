@@ -133,6 +133,32 @@ public sealed class DeliverySettings : ValueObject
         MinDeliveryDays,
         MaxDeliveryDays);
 
+    /// <summary>
+    /// Copies every value from <paramref name="other"/> into THIS instance, in place.
+    ///
+    /// Required for EF Core owned entities. <see cref="BusinessSettings"/> maps Delivery via
+    /// <c>OwnsOne</c>, and this type overrides <c>Equals</c> structurally. Replacing the
+    /// reference (<c>Delivery = other</c>) can therefore go UNDETECTED: the change tracker
+    /// compares the newly assigned instance against the tracked one and concludes nothing
+    /// changed, so SaveChanges issues no UPDATE and the edit is silently discarded — the API
+    /// returns 200 with the old value still in the database.
+    ///
+    /// Mutating the tracked instance in place changes its scalar properties, which EF detects
+    /// unambiguously through its original-value snapshot.
+    /// </summary>
+    internal void ApplyFrom(DeliverySettings other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+
+        FlatFeeAmount = other.FlatFeeAmount;
+        FreeShippingThreshold = other.FreeShippingThreshold;
+        CodEnabled = other.CodEnabled;
+        CodExtraFee = other.CodExtraFee;
+        ProcessingDays = other.ProcessingDays;
+        MinDeliveryDays = other.MinDeliveryDays;
+        MaxDeliveryDays = other.MaxDeliveryDays;
+    }
+
     protected override IEnumerable<object?> GetEqualityComponents()
     {
         yield return FlatFeeAmount;

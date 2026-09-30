@@ -1,5 +1,6 @@
 using System.Text.Json;
 using KromicCommerce.Application.Abstractions.Payments;
+using KromicCommerce.Application.Services;
 
 namespace KromicCommerce.Application.Features.Orders;
 
@@ -22,10 +23,32 @@ namespace KromicCommerce.Application.Features.Orders;
 ///
 /// A payment that was never captured (pending, failed) needs no refund, and a cash-on-delivery
 /// order never has a captured online payment, so both proceed straight to cancellation.
+///
+/// Known failure mode — refund succeeded, database commit failed
+/// -------------------------------------------------------------
+/// The Razorpay refund is an external call and cannot participate in the PostgreSQL
+/// transaction. If the refund is accepted but the final SaveChangesAsync then fails, the
+/// database still shows an uncancelled order whose payment is recorded as un-refunded, while
+/// the customer has in fact been made whole at the provider.
+///
+/// That window is deliberately left to a recovery process rather than papered over. What makes
+/// it SAFE and recoverable, rather than a silent double-refund hazard, is that step 1 commits
+/// the refund record on its own before touching the order:
+///   - A retry finds <c>payment.IsRefunded == true</c>, skips the provider call entirely, and
+///     proceeds straight to cancellation — so the order reaches its correct terminal state
+///     without paying the customer twice.
+///   - The idempotency key <c>order-cancel:{orderId}</c> means that even a retry that did reach
+///     the provider would be de-duplicated by Razorpay.
+/// So the correct recovery for an order stuck after a successful refund is simply to retry the
+/// cancellation. Automated reconciliation of a half-committed refund is deliberately NOT
+/// attempted here: attempting an automatic second refund against a payment that may already
+/// have been returned would risk paying twice, and that is strictly worse than a manual review
+/// queue.
 /// </summary>
 internal sealed class OrderCancellationService(
     IApplicationDbContext db,
     IPaymentGateway paymentGateway,
+    OrderInventoryRestorer inventoryRestorer,
     ILogger<OrderCancellationService> logger)
 {
     /// <summary>
@@ -123,10 +146,15 @@ internal sealed class OrderCancellationService(
         // A refund recorded in step 1 is already committed at this point. A retry therefore
         // skips the provider call and comes straight back here, which is the intended
         // idempotent recovery.
+        //
+        // Staging does NOT save. The restore, the order transition and the outbox event are
+        // all committed by the single SaveChangesAsync in step 3, so EF wraps them in one
+        // transaction and stock can never be restored against an order that stayed active.
         // -----------------------------------------------------------------------
+        IReadOnlyList<Guid> restoredProductIds;
         try
         {
-            await ReleaseInventoryAsync(order, ct);
+            restoredProductIds = await inventoryRestorer.StageRestoreAsync(order, ct);
         }
         catch (InvalidOperationException ex)
         {
@@ -160,62 +188,14 @@ internal sealed class OrderCancellationService(
 
         await db.SaveChangesAsync(ct);
 
+        // Only after the commit succeeded — invalidating earlier could repopulate the cache
+        // from a transaction that then rolled back.
+        await inventoryRestorer.InvalidateCachesAsync(restoredProductIds, ct);
+
         logger.LogInformation(
             "Order {OrderId} cancelled by {CancelledBy}. Reason: {Reason}",
             order.Id, cancelledBy, reason ?? "none");
 
         return Result.Success();
-    }
-
-    /// <summary>
-    /// Returns every order line's units to sellable stock.
-    ///
-    /// Uses <see cref="InventoryItem.RestoreForCancellation"/> rather than Release, because a
-    /// cancelled order may or may not have been confirmed:
-    ///   - Not confirmed  → units are still reserved and come out of Reserved.
-    ///   - Confirmed      → FinalizeReservation already deducted them from OnHand, so they must
-    ///                       be added back. Plain Release throws in that case, which previously
-    ///                       left a cancelled-and-refunded confirmed order with its units
-    ///                       permanently missing from sellable stock.
-    ///
-    /// Failures are NOT swallowed. Swallowing here made a partial restore unrecoverable: the
-    /// order is already Cancelled, so re-running cancellation throws INVALID_ORDER_TRANSITION
-    /// and the missing units can never be returned.
-    /// </summary>
-    private async Task ReleaseInventoryAsync(Order order, CancellationToken ct)
-    {
-        var productIds = order.Items.Select(i => i.ProductId).ToList();
-        if (productIds.Count == 0) return;
-
-        var inventoryItems = await db.InventoryItems
-            .Where(i => productIds.Contains(i.ProductId))
-            .ToListAsync(ct);
-
-        var targets = order.Items
-            .Select(item => new
-            {
-                Item = item,
-                Inventory = inventoryItems.FirstOrDefault(
-                    i => i.ProductId == item.ProductId && i.VariantId == item.VariantId)
-            })
-            .Where(t => t.Inventory is not null)
-            .Select(t => new { t.Item, Inventory = t.Inventory! })
-            .ToList();
-
-        // Validate every line before restoring any, so a later failure cannot leave a
-        // half-applied restore with dirty entities in the change tracker.
-        foreach (var target in targets)
-        {
-            if (!target.Inventory.CanRestoreForCancellation(target.Item.Quantity))
-            {
-                throw new InvalidOperationException(
-                    $"Inventory restore failed for order {order.OrderNumber} " +
-                    $"(product {target.Item.ProductId}, qty {target.Item.Quantity}). " +
-                    "The order was not cancelled. Resolve the inventory discrepancy and retry.");
-            }
-        }
-
-        foreach (var target in targets)
-            target.Inventory.RestoreForCancellation(target.Item.Quantity);
     }
 }

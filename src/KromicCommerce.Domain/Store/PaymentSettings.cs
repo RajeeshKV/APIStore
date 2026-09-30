@@ -55,6 +55,22 @@ public sealed class PaymentSettings : ValueObject
             EncryptedRazorpayWebhookSecret = EncryptedRazorpayWebhookSecret
         };
 
+    /// <summary>
+    /// Copies every value from <paramref name="other"/> into this instance, in place.
+    ///
+    /// Required for EF Core owned entities — see the equivalent method on DeliverySettings for
+    /// why replacing the reference silently loses the write.
+    /// </summary>
+    internal void ApplyFrom(PaymentSettings other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+
+        Enabled = other.Enabled;
+        RazorpayKeyId = other.RazorpayKeyId;
+        EncryptedRazorpayKeySecret = other.EncryptedRazorpayKeySecret;
+        EncryptedRazorpayWebhookSecret = other.EncryptedRazorpayWebhookSecret;
+    }
+
     protected override IEnumerable<object?> GetEqualityComponents()
     {
         yield return Enabled;

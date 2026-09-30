@@ -1,5 +1,8 @@
 using System.Linq.Expressions;
 using KromicCommerce.Application.Abstractions.Payments;
+using KromicCommerce.Application.Abstractions.Catalog;
+using KromicCommerce.Application.Services;
+using KromicCommerce.Domain.Catalog;
 using KromicCommerce.Application.Features.Orders;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -22,6 +25,7 @@ public sealed class OrderCancellationRefundTests
 {
     private readonly Mock<IApplicationDbContext> _db = new();
     private readonly Mock<IPaymentGateway> _gateway = new();
+    private readonly Mock<ICatalogCacheService> _cache = new();
 
     // -----------------------------------------------------------------------
     // Refund rejected — the order must not change
@@ -406,7 +410,7 @@ public sealed class OrderCancellationRefundTests
     public async Task Reserved_inventory_is_released_on_a_successful_cancellation()
     {
         var order = BuildConfirmedRazorpayOrder();
-        order.AddItem(OrderItem.Create(order.Id, Guid.NewGuid(), null, "Widget", null, "SKU-1", 100m, 2));
+        AddLine(order, 2, OrderItemInventoryStatus.Reserved);
         var inventory = InventoryItem.Create(order.Items[0].ProductId, null, onHand: 10);
         inventory.Reserve(2);
 
@@ -440,7 +444,7 @@ public sealed class OrderCancellationRefundTests
     public async Task Cancelling_a_confirmed_order_returns_sold_units_to_stock()
     {
         var order = BuildConfirmedRazorpayOrder();
-        order.AddItem(OrderItem.Create(order.Id, Guid.NewGuid(), null, "Widget", null, "SKU-1", 100m, 2));
+        AddLine(order, 2, OrderItemInventoryStatus.Finalized);
 
         // Model the post-confirmation state: 2 units reserved, then finalised away.
         var productId = order.Items[0].ProductId;
@@ -480,7 +484,7 @@ public sealed class OrderCancellationRefundTests
     public async Task Cancelling_an_unconfirmed_order_returns_reserved_units_to_available()
     {
         var order = BuildConfirmedRazorpayOrder();
-        order.AddItem(OrderItem.Create(order.Id, Guid.NewGuid(), null, "Widget", null, "SKU-1", 100m, 2));
+        AddLine(order, 2, OrderItemInventoryStatus.Reserved);
 
         var inventory = InventoryItem.Create(order.Items[0].ProductId, null, onHand: 10);
         inventory.Reserve(2);
@@ -515,10 +519,9 @@ public sealed class OrderCancellationRefundTests
     [Fact]
     public async Task A_failed_inventory_restore_leaves_the_order_uncancelled()
     {
-        var order = BuildConfirmedRazorpayOrder();
+var order = BuildConfirmedRazorpayOrder();
         var inventory = InventoryItem.Create(Guid.NewGuid(), null, int.MaxValue);
-        order.AddItem(OrderItem.Create(
-            order.Id, inventory.ProductId, null, "Widget", null, "SKU-1", 100m, 1));
+        AddLine(order, 1, OrderItemInventoryStatus.Finalized, inventory.ProductId);
 
         SetupPayments([BuildCapturedPayment(order.Id, 1000m)]);
         SetupInventory([inventory]);
@@ -547,7 +550,10 @@ public sealed class OrderCancellationRefundTests
     // -----------------------------------------------------------------------
 
     private OrderCancellationService BuildService()
-        => new(_db.Object, _gateway.Object, NullLogger<OrderCancellationService>.Instance);
+        => new(_db.Object, _gateway.Object,
+               new OrderInventoryRestorer(_db.Object, _cache.Object,
+                   NullLogger<OrderInventoryRestorer>.Instance),
+               NullLogger<OrderCancellationService>.Instance);
 
     private static Order BuildConfirmedOrder(PaymentMethod method, decimal grandTotal = 1000m)
     {
@@ -578,11 +584,40 @@ public sealed class OrderCancellationRefundTests
         return payment;
     }
 
+    /// <summary>
+    /// Adds an order line carrying the inventory lifecycle state checkout would have persisted.
+    ///
+    /// Cancellation now restores from this recorded state rather than inferring it from the
+    /// current Reserved/OnHand counters, so a fixture that leaves the line 'Untracked' would be
+    /// correctly skipped and the test would assert nothing. Marking the line explicitly is what
+    /// makes these tests exercise the real restore path.
+    /// </summary>
+    private static OrderItem AddLine(
+        Order order, int qty, OrderItemInventoryStatus status, Guid? productId = null)
+    {
+        var item = OrderItem.Create(
+            order.Id, productId ?? Guid.NewGuid(), null, "Widget", null, "SKU-1", 100m, qty);
+
+        item.MarkInventoryReserved(qty);
+        if (status == OrderItemInventoryStatus.Finalized)
+            item.MarkInventoryFinalized();
+
+        order.AddItem(item);
+        return item;
+    }
+
     private void SetupPayments(List<Payment> payments)
         => SetupDbSet(_db, d => d.Payments, payments);
 
     private void SetupInventory(List<InventoryItem> items)
-        => SetupDbSet(_db, d => d.InventoryItems, items);
+    {
+        SetupDbSet(_db, d => d.InventoryItems, items);
+
+        // Restoring stock evicts the cached availability projections, and that invalidation
+        // resolves each affected product's slug. Wire Products so the lookup runs against a real
+        // (empty) queryable instead of an unconfigured mock that yields null and throws.
+        SetupDbSet(_db, d => d.Products, new List<Product>());
+    }
 
     /// <summary>
     /// Wires a DbSet backed by an in-memory list. The predicate is supplied as a typed lambda

@@ -52,6 +52,21 @@ public sealed class EmailSettings : ValueObject
         };
     }
 
+    /// <summary>
+    /// Copies every value from <paramref name="other"/> into this instance, in place.
+    ///
+    /// Required for EF Core owned entities — see the equivalent method on DeliverySettings for
+    /// why replacing the reference silently loses the write.
+    /// </summary>
+    internal void ApplyFrom(EmailSettings other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+
+        Mode = other.Mode;
+        SenderName = other.SenderName;
+        SenderEmail = other.SenderEmail;
+    }
+
     protected override IEnumerable<object?> GetEqualityComponents()
     {
         yield return Mode;

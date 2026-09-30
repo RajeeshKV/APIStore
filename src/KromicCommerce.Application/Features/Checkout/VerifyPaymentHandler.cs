@@ -1,4 +1,5 @@
 using System.Text.Json;
+using KromicCommerce.Application.Services;
 using KromicCommerce.Domain.Promotions;
 
 namespace KromicCommerce.Application.Features.Checkout;
@@ -21,6 +22,7 @@ namespace KromicCommerce.Application.Features.Checkout;
 internal sealed class VerifyPaymentHandler(
     IApplicationDbContext db,
     IPaymentGateway paymentGateway,
+    OrderInventoryRestorer inventoryRestorer,
     ILogger<VerifyPaymentHandler> logger)
     : ICommandHandler<VerifyPaymentCommand, PaymentResponse>
 {
@@ -68,8 +70,17 @@ internal sealed class VerifyPaymentHandler(
 
             // Return the reserved units. The order never reaches Confirmed, so the units are
             // still in the Reserved bucket and never left OnHand.
-            await ReleaseInventoryAsync(order, cancellationToken);
+            //
+            // Staged only — not saved. The release, the failed payment and the failed order all
+            // commit in the single SaveChangesAsync below, so a failure can never leave units
+            // released against an order that is not actually Failed (or vice versa).
+            var restoredProductIds = await StageInventoryReleaseAsync(order, cancellationToken);
+
             await db.SaveChangesAsync(cancellationToken);
+
+            // Only after the commit — invalidating first could repopulate the cache from a
+            // transaction that then rolled back.
+            await inventoryRestorer.InvalidateCachesAsync(restoredProductIds, cancellationToken);
 
             return Result.Failure<PaymentResponse>(
                 Error.Unauthorized("PAYMENT_VERIFICATION_FAILED",
@@ -117,34 +128,27 @@ internal sealed class VerifyPaymentHandler(
     /// <summary>
     /// Returns reserved units when a payment attempt fails verification.
     ///
-    /// A failed order never reached Confirmed, so its units are still reserved and never left
-    /// OnHand. Failures are surfaced rather than swallowed: a silently skipped release would
-    /// strand units in Reserved forever, and the order is already Failed so nothing would
-    /// ever attempt the release again.
+    /// A failed order never reached Confirmed, so its units are still Reserved and never left
+    /// OnHand. The restore is driven by each line's persisted inventory status rather than by
+    /// current counters, so a duplicate or concurrent failure callback cannot release units it
+    /// did not reserve. See <see cref="OrderInventoryRestorer"/> for the idempotency and
+    /// concurrency guarantees.
+    ///
+    /// Failures are surfaced rather than swallowed: a silently skipped release would strand
+    /// units in Reserved forever, and the order is already Failed so nothing would ever attempt
+    /// the release again.
     /// </summary>
-    private async Task ReleaseInventoryAsync(Order order, CancellationToken ct)
+    private async Task<IReadOnlyList<Guid>> StageInventoryReleaseAsync(Order order, CancellationToken ct)
     {
-        var productIds = order.Items.Select(i => i.ProductId).ToList();
-        if (productIds.Count == 0) return;
-
-        var inventoryItems = await db.InventoryItems
-            .Where(i => productIds.Contains(i.ProductId))
-            .ToListAsync(ct);
-
-        foreach (var item in order.Items)
+        try
         {
-            var inv = inventoryItems.FirstOrDefault(
-                i => i.ProductId == item.ProductId && i.VariantId == item.VariantId);
-            if (inv is null) continue;
-
-            try { inv.RestoreForCancellation(item.Quantity); }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException(
-                    $"Inventory release failed for failed order {order.OrderNumber} " +
-                    $"(product {item.ProductId}, qty {item.Quantity}).",
-                    ex);
-            }
+            return await inventoryRestorer.StageRestoreAsync(order, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new InvalidOperationException(
+                $"Inventory release failed for failed order {order.OrderNumber}. {ex.Message}",
+                ex);
         }
     }
 
