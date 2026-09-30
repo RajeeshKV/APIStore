@@ -26,9 +26,7 @@ internal sealed class UploadBrandLogoHandler(
 
         brand.SetLogo(cmd.PublicId, cmd.SecureUrl);
         await db.SaveChangesAsync(cancellationToken);
-
-        cache.InvalidateBrands();
-        cache.InvalidateStorefrontBrands();
+        cache.InvalidateBrandGraph();
 
         if (!string.IsNullOrWhiteSpace(oldPublicId))
         {
@@ -70,9 +68,7 @@ internal sealed class DeleteBrandLogoHandler(
 
         brand.ClearLogo();
         await db.SaveChangesAsync(cancellationToken);
-
-        cache.InvalidateBrands();
-        cache.InvalidateStorefrontBrands();
+        cache.InvalidateBrandGraph();
 
         // Delete Cloudinary asset after DB commit — never before
         var deleteResult = await cloudinary.DeleteAsync(publicId, cancellationToken);

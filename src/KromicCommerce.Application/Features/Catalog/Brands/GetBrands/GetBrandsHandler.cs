@@ -10,12 +10,15 @@ internal sealed class GetBrandsHandler(
     IOptions<CatalogCacheOptions> cacheOpts)
     : IQueryHandler<GetBrandsQuery, IReadOnlyList<BrandResponse>>
 {
-    private const string CacheKey = CatalogCacheKeys.AllBrands;
-
     public async Task<Result<IReadOnlyList<BrandResponse>>> Handle(
         GetBrandsQuery query, CancellationToken cancellationToken)
     {
-        if (cache.TryGetValue(CacheKey, out IReadOnlyList<BrandResponse>? cached) && cached is not null)
+        // ActiveOnly changes which brands are returned, so it must be part of the key —
+        // otherwise an unfiltered read populates the entry and a filtered read then receives
+        // inactive brands (or the reverse, hiding drafts from admins).
+        var cacheKey = CatalogCacheKeys.AdminBrands(query.ActiveOnly);
+
+        if (cache.TryGetValue(cacheKey, out IReadOnlyList<BrandResponse>? cached) && cached is not null)
             return Result.Success(cached);
 
         var brands = await db.Brands
@@ -29,7 +32,7 @@ internal sealed class GetBrandsHandler(
             .ToList()
             .AsReadOnly();
 
-        cache.Set(CacheKey, (IReadOnlyList<BrandResponse>)result, new MemoryCacheEntryOptions
+        cache.Set(cacheKey, (IReadOnlyList<BrandResponse>)result, new MemoryCacheEntryOptions
         {
             AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(cacheOpts.Value.DefaultExpiryMinutes),
             Size = 1

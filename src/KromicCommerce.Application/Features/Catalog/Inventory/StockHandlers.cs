@@ -39,7 +39,8 @@ internal sealed class SetStockHandler(
         }
 
         await db.SaveChangesAsync(cancellationToken);
-        cache.InvalidateStorefrontProduct(productSlug);
+        cache.InvalidateStockGraph(productSlug);
+        cache.InvalidateProduct(command.ProductId);
 
         if (inventory.IsLowStock)
             logger.LogWarning("Low stock detected. ProductId: {ProductId}, Available: {Available}",
@@ -88,7 +89,8 @@ internal sealed class AdjustStockHandler(
             .FirstOrDefaultAsync(cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
-        if (productSlug is not null) cache.InvalidateStorefrontProduct(productSlug);
+        cache.InvalidateStockGraph(productSlug);
+        cache.InvalidateProduct(command.ProductId);
 
         logger.LogInformation(
             "Stock adjusted. ProductId: {ProductId} Delta: {Delta} Reason: {Reason}",

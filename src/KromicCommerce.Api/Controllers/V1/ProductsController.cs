@@ -3,6 +3,7 @@ using KromicCommerce.Application.Features.Catalog.Products.ChangeProductStatus;
 using KromicCommerce.Application.Features.Catalog.Products.CreateProduct;
 using KromicCommerce.Application.Features.Catalog.Products.GetProducts;
 using KromicCommerce.Application.Features.Catalog.Products.UpdateProduct;
+using KromicCommerce.Application.Features.Catalog.Products.Attributes;
 using KromicCommerce.Application.Features.Catalog.Products.Variants;
 using KromicCommerce.Contracts.Catalog;
 using KromicCommerce.Contracts.Common;
@@ -148,6 +149,9 @@ public sealed class ProductsController(IMediator mediator) : ControllerBase
     /// Automatically creates an InventoryItem at 0 stock.
     /// Attribute values must belong to attributes defined on this product.
     /// The attribute combination must be unique among existing variants.
+    ///
+    /// Omit sortOrder in the body to have the backend append the variant after the current
+    /// maximum — the recommended path.
     /// </summary>
     [HttpPost("{productId:guid}/variants")]
     [Authorize(Policy = "AdminOnly")]
@@ -208,6 +212,61 @@ public sealed class ProductsController(IMediator mediator) : ControllerBase
         CancellationToken ct)
     {
         var result = await mediator.Send(new DeleteVariantCommand(productId, variantId), ct);
+        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+    }
+
+    // -----------------------------------------------------------------------
+    // Variant attributes — the axes a product varies on
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// List the attribute definitions and selectable values for a product.
+    ///
+    /// This is what a variant selector is built from: the axes (Storage, Colour, ...) and the
+    /// values available on each. A product with no attributes simply returns an empty list and
+    /// behaves as a single-variant product.
+    /// </summary>
+    [HttpGet("{productId:guid}/attributes")]
+    [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(typeof(ProductAttributesResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetAttributes(Guid productId, CancellationToken ct)
+    {
+        var result = await mediator.Send(new GetProductAttributesQuery(productId), ct);
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
+    }
+
+    /// <summary>
+    /// Create or replace one attribute definition and its values.
+    ///
+    /// The value list is replaced wholesale: a value not named in the request is deleted, and
+    /// any variant still referencing it loses that axis. Pass the existing value's Id to edit
+    /// or reorder it rather than recreate it.
+    /// </summary>
+    [HttpPut("{productId:guid}/attributes")]
+    [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(typeof(ProductAttributesResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpsertAttribute(
+        Guid productId,
+        [FromBody] UpsertProductAttributeRequest req,
+        CancellationToken ct)
+    {
+        var result = await mediator.Send(
+            new UpsertProductAttributeCommand(productId, req.Name, req.Values), ct);
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
+    }
+
+    /// <summary>Delete an attribute definition and all of its values. Idempotent.</summary>
+    [HttpDelete("{productId:guid}/attributes/{attributeId:guid}")]
+    [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> DeleteAttribute(
+        Guid productId, Guid attributeId, CancellationToken ct)
+    {
+        var result = await mediator.Send(
+            new DeleteProductAttributeCommand(productId, attributeId), ct);
         return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
     }
 }

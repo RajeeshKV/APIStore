@@ -25,6 +25,56 @@ public sealed record UpdateSmsConfigCommand(
 public sealed record UpdateEmailConfigCommand(
     bool Enabled, string Mode, string SenderName, string? SenderEmail, string? ApiKey) : ICommand;
 
+/// <summary>
+/// Validation for the integrations email configuration.
+///
+/// The endpoint took a raw <c>string Mode</c> with no validation, so any typo was accepted and
+/// written into the audit record. Mode is parsed against the real <see cref="EmailMode"/> here,
+/// and the sender address is required only when the store actually sends from its own account
+/// — matching the rule enforced on the settings endpoint so the two screens cannot disagree.
+///
+/// The API key is optional: it is a write-once credential, and an update that only toggles a
+/// flag or renames the sender must not have to resend it.
+/// </summary>
+internal sealed class UpdateEmailConfigValidator : AbstractValidator<UpdateEmailConfigCommand>
+{
+    public UpdateEmailConfigValidator()
+    {
+        RuleFor(x => x.Mode)
+            .NotEmpty().WithMessage("Email mode is required.")
+            .Must(BeKnownMode).WithMessage(
+                "Mode must be either KromicManaged or CustomerBrevo.");
+
+        RuleFor(x => x.SenderName)
+            .NotEmpty().WithMessage("Sender name is required.")
+            .MaximumLength(100).WithMessage("Sender name must not exceed 100 characters.");
+
+        RuleFor(x => x.SenderEmail)
+            .NotEmpty().WithMessage("Sender email is required in CustomerBrevo mode.")
+            .Must(v => !string.IsNullOrWhiteSpace(v))
+            .WithMessage("Sender email is required in CustomerBrevo mode.")
+            .EmailAddress().WithMessage("Sender email must be a valid email address.")
+            .MaximumLength(256).WithMessage("Sender email must not exceed 256 characters.")
+            .When(x => BeKnownMode(x.Mode) && Parse(x.Mode) == EmailMode.CustomerBrevo);
+
+        RuleFor(x => x.SenderEmail)
+            .Must(v => string.IsNullOrWhiteSpace(v)).WithMessage(
+                "Sender email is not used in KromicManaged mode. Omit it, or switch to CustomerBrevo.")
+            .When(x => BeKnownMode(x.Mode) && Parse(x.Mode) == EmailMode.KromicManaged
+                       && !string.IsNullOrWhiteSpace(x.SenderEmail));
+
+        RuleFor(x => x.ApiKey)
+            .MaximumLength(500).WithMessage("API key must not exceed 500 characters.")
+            .When(x => x.ApiKey is not null);
+    }
+
+    private static bool BeKnownMode(string? mode) =>
+        mode is not null && Enum.TryParse<EmailMode>(mode, ignoreCase: true, out _);
+
+    private static EmailMode Parse(string? mode) =>
+        Enum.TryParse<EmailMode>(mode, ignoreCase: true, out var parsed) ? parsed : EmailMode.KromicManaged;
+}
+
 // -------------------------------------------------------------------------
 
 internal sealed class UpdateRazorpayConfigHandler(
@@ -80,18 +130,15 @@ internal sealed class UpdateCashOnDeliveryHandler(
                 "BUSINESS_SETTINGS_NOT_FOUND", "Business settings have not been initialised."));
 
         var delivery = settings.Delivery;
-        settings.UpdateDelivery(DeliverySettings.Create(
-            delivery.FlatFeeAmount,
-            delivery.FreeShippingThreshold,
-            cmd.Enabled,
-            delivery.CodExtraFee,
-            delivery.ProcessingDays,
-            delivery.MinDeliveryDays,
-            delivery.MaxDeliveryDays));
+        settings.SetCodEnabled(cmd.Enabled);
 
         await db.SaveChangesAsync(ct);
-        settingsService.Invalidate();
-        logger.LogInformation("Cash on delivery updated. Enabled: {Enabled}", cmd.Enabled);
+        // Shipping/COD configuration: invalidate the settings object AND every downstream
+        // entry that embeds shipping-derived data (storefront delivery estimates).
+        settingsService.InvalidateShipping();
+        logger.LogInformation(
+            "Cash on delivery availability updated. Enabled: {Enabled} (fee: {CodFee})",
+            cmd.Enabled, delivery.EffectiveCodFee);
         return Result.Success();
     }
 }

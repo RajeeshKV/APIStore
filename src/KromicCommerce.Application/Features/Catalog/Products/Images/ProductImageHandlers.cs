@@ -37,8 +37,7 @@ internal sealed class AddProductImageHandler(IApplicationDbContext db, ICatalogC
         // If SaveChangesAsync fails, the Cloudinary asset remains orphaned.
         // A future Outbox/reconciliation job handles cleanup. Do not silently swallow.
         await db.SaveChangesAsync(cancellationToken);
-        cache.InvalidateProduct(cmd.ProductId);
-        cache.InvalidateStorefrontProduct(product.Slug);
+        cache.InvalidateProductGraph(cmd.ProductId, product.Slug);
 
         return Result.Success(new ProductImageDto(image.Id,
             new MediaAssetDto(asset.PublicId, asset.SecureUrl, asset.Format, asset.Width, asset.Height, asset.AltText),
@@ -75,8 +74,7 @@ internal sealed class ReorderProductImagesHandler(IApplicationDbContext db, ICat
         }
 
         await db.SaveChangesAsync(cancellationToken);
-        cache.InvalidateProduct(cmd.ProductId);
-        if (productSlug is not null) cache.InvalidateStorefrontProduct(productSlug);
+        cache.InvalidateProductGraph(cmd.ProductId, productSlug);
 
         IReadOnlyList<ProductImageDto> result = images
             .OrderBy(i => i.SortOrder)
@@ -138,9 +136,7 @@ internal sealed class DeleteProductImageHandler(
             logger.LogError(
                 "Cloudinary delete failed for ProductImage {ImageId} (PublicId: {PublicId}): {Error}",
                 cmd.ImageId, publicId, deleteResult.ErrorMessage);
-
-        cache.InvalidateProduct(cmd.ProductId);
-        if (productSlug is not null) cache.InvalidateStorefrontProduct(productSlug);
+        cache.InvalidateProductGraph(cmd.ProductId, productSlug);
         return Result.Success();
     }
 }
@@ -175,9 +171,7 @@ internal sealed class SetPrimaryProductImageHandler(IApplicationDbContext db, IC
             .Where(p => p.Id == cmd.ProductId)
             .Select(p => p.Slug)
             .FirstOrDefaultAsync(cancellationToken);
-
-        cache.InvalidateProduct(cmd.ProductId);
-        if (productSlug is not null) cache.InvalidateStorefrontProduct(productSlug);
+        cache.InvalidateProductGraph(cmd.ProductId, productSlug);
 
         return Result.Success(new ProductImageDto(
             target.Id,

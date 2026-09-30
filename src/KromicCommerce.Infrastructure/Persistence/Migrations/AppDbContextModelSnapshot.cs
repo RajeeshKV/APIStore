@@ -32,6 +32,10 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<string>("CouponCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -387,6 +391,7 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ProductId", "Name")
+                        .IsUnique()
                         .HasDatabaseName("ix_product_attributes_product_name");
 
                     b.ToTable("product_attributes", (string)null);
@@ -414,6 +419,7 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("AttributeId", "Value")
+                        .IsUnique()
                         .HasDatabaseName("ix_product_attribute_values_attr_value");
 
                     b.ToTable("product_attribute_values", (string)null);
@@ -1082,6 +1088,16 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("ProviderRefundId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("RefundedAmount")
+                        .HasColumnType("numeric(12,2)");
+
+                    b.Property<DateTime?>("RefundedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -1106,6 +1122,10 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                     b.HasIndex("ProviderPaymentId")
                         .HasDatabaseName("ix_payments_provider_payment")
                         .HasFilter("\"ProviderPaymentId\" IS NOT NULL");
+
+                    b.HasIndex("ProviderRefundId")
+                        .HasDatabaseName("ix_payments_provider_refund")
+                        .HasFilter("\"ProviderRefundId\" IS NOT NULL");
 
                     b.ToTable("payments", (string)null);
                 });

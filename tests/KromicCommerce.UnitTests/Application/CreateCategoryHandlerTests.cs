@@ -27,7 +27,7 @@ public sealed class CreateCategoryHandlerTests
         result.IsSuccess.Should().BeTrue();
         result.Value.Name.Should().Be("Electronics");
         result.Value.Slug.Should().Be("electronics");
-        _cache.Verify(c => c.InvalidateCategories(), Times.Once);
+        _cache.Verify(c => c.InvalidateCategoryGraph(), Times.Once);
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public sealed class CreateCategoryHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.Error.Code.Should().Be("CATEGORY_SLUG_TAKEN");
-        _cache.Verify(c => c.InvalidateCategories(), Times.Never);
+        _cache.Verify(c => c.InvalidateCategoryGraph(), Times.Never);
     }
 
     [Theory]

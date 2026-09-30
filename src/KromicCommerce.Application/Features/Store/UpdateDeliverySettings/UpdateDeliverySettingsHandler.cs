@@ -26,8 +26,12 @@ internal sealed class UpdateDeliverySettingsHandler(
 
         settings.UpdateDelivery(delivery);
         await db.SaveChangesAsync(cancellationToken);
-        settingsService.Invalidate();
-        logger.LogInformation("BusinessSettings delivery configuration updated.");
+        // Shipping/COD configuration: invalidate the settings object AND every downstream
+        // entry that embeds shipping-derived data (storefront delivery estimates).
+        settingsService.InvalidateShipping();
+        logger.LogInformation(
+            "BusinessSettings delivery configuration updated. CodEnabled: {CodEnabled} CodExtraFee: {CodExtraFee}",
+            delivery.CodEnabled, delivery.CodExtraFee);
 
         var updated = await settingsService.GetAsync(cancellationToken);
         return Result.Success(AdminSettingsMapper.Map(updated!));

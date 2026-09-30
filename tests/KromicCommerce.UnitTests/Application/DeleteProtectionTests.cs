@@ -35,7 +35,7 @@ public sealed class DeleteProtectionTests
         result.IsFailure.Should().BeTrue();
         result.Error.Type.Should().Be(ErrorType.Conflict);
         result.Error.Code.Should().Be("CATEGORY_HAS_PRODUCTS");
-        _cache.Verify(c => c.InvalidateCategories(), Times.Never);
+        _cache.Verify(c => c.InvalidateCategoryGraph(), Times.Never);
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public sealed class DeleteProtectionTests
         result.IsFailure.Should().BeTrue();
         result.Error.Type.Should().Be(ErrorType.Conflict);
         result.Error.Code.Should().Be("CATEGORY_HAS_CHILDREN");
-        _cache.Verify(c => c.InvalidateCategories(), Times.Never);
+        _cache.Verify(c => c.InvalidateCategoryGraph(), Times.Never);
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public sealed class DeleteProtectionTests
         var result = await handler.Handle(new DeleteCategoryCommand(categoryId), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        _cache.Verify(c => c.InvalidateCategories(), Times.Once);
+        _cache.Verify(c => c.InvalidateCategoryGraph(), Times.Once);
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public sealed class DeleteProtectionTests
         result.IsFailure.Should().BeTrue();
         result.Error.Type.Should().Be(ErrorType.Conflict);
         result.Error.Code.Should().Be("BRAND_HAS_PRODUCTS");
-        _cache.Verify(c => c.InvalidateBrands(), Times.Never);
+        _cache.Verify(c => c.InvalidateBrandGraph(), Times.Never);
     }
 
     [Fact]
@@ -124,7 +124,7 @@ public sealed class DeleteProtectionTests
         var result = await handler.Handle(new DeleteBrandCommand(brandId), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        _cache.Verify(c => c.InvalidateBrands(), Times.Once);
+        _cache.Verify(c => c.InvalidateBrandGraph(), Times.Once);
     }
 
     [Fact]

@@ -62,8 +62,7 @@ internal sealed class GetTaxConfigHandler(IBusinessSettingsService settingsServi
 
 internal sealed class UpdateTaxConfigHandler(
     IApplicationDbContext db,
-    IBusinessSettingsService settingsService,
-    IMemoryCache cache)
+    IBusinessSettingsService settingsService)
     : ICommandHandler<UpdateTaxConfigCommand, TaxConfigResponse>
 {
     public async Task<Result<TaxConfigResponse>> Handle(
@@ -91,9 +90,10 @@ internal sealed class UpdateTaxConfigHandler(
         settings.UpdateTax(taxSettings);
         await db.SaveChangesAsync(ct);
 
-        // Invalidate the cached business settings so the new tax config is picked up immediately
+        // Invalidate the cached business settings so the new tax config is picked up immediately.
+        // IBusinessSettingsService owns that cache key — removing it again here would evict
+        // the identical key twice.
         settingsService.Invalidate();
-        cache.Remove(CatalogCacheKeys.BusinessSettings);
 
         return Result.Success(TaxHandlerMapper.MapResponse(taxSettings));
     }

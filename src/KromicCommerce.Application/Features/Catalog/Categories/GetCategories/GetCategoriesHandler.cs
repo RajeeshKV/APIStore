@@ -11,13 +11,14 @@ internal sealed class GetCategoriesHandler(
     IOptions<CatalogCacheOptions> cacheOpts)
     : IQueryHandler<GetCategoriesQuery, IReadOnlyList<CategoryResponse>>
 {
-    private const string CacheKey = CatalogCacheKeys.AllCategories;
-
     public async Task<Result<IReadOnlyList<CategoryResponse>>> Handle(
         GetCategoriesQuery query,
         CancellationToken cancellationToken)
     {
-        if (cache.TryGetValue(CacheKey, out IReadOnlyList<CategoryResponse>? cached) && cached is not null)
+        // ActiveOnly changes which categories are returned, so it must be part of the key.
+        var cacheKey = CatalogCacheKeys.AdminCategories(query.ActiveOnly);
+
+        if (cache.TryGetValue(cacheKey, out IReadOnlyList<CategoryResponse>? cached) && cached is not null)
             return Result.Success(cached);
 
         var categories = await db.Categories
@@ -32,7 +33,7 @@ internal sealed class GetCategoriesHandler(
             .ToList()
             .AsReadOnly();
 
-        cache.Set(CacheKey, (IReadOnlyList<CategoryResponse>)result, new MemoryCacheEntryOptions
+        cache.Set(cacheKey, (IReadOnlyList<CategoryResponse>)result, new MemoryCacheEntryOptions
         {
             AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(cacheOpts.Value.DefaultExpiryMinutes),
             Size = 1

@@ -52,6 +52,23 @@ public sealed class Payment : AuditableEntity
     public string? FailureReason { get; private set; }
     public DateTime? PaidAt { get; private set; }
 
+    // -----------------------------------------------------------------------
+    // Refund tracking
+    //
+    // Persisting the refund result is the idempotency checkpoint for cancellation:
+    // once a payment is marked refunded, a retried cancellation reads this state and
+    // skips the provider call instead of issuing a second refund.
+    // -----------------------------------------------------------------------
+
+    /// <summary>Provider-generated refund ID (e.g. Razorpay rfnd_xxx). Never a secret.</summary>
+    public string? ProviderRefundId { get; private set; }
+
+    /// <summary>Amount accepted for refund by the provider.</summary>
+    public decimal RefundedAmount { get; private set; }
+
+    /// <summary>When the refund was accepted by the provider (not when it settled).</summary>
+    public DateTime? RefundedAtUtc { get; private set; }
+
     // Navigation
     public Order Order { get; private set; } = null!;
 
@@ -84,5 +101,20 @@ public sealed class Payment : AuditableEntity
     }
 
     public void MarkRefundPending() => Status = PaymentStatus.RefundPending;
-    public void MarkRefunded()      => Status = PaymentStatus.Refunded;
+
+    /// <summary>
+    /// Records that the provider accepted a refund. <paramref name="amount"/> defaults to the
+    /// full captured amount — the only amount this system currently supports, since partial
+    /// refunds are not exposed to customers or admins.
+    /// </summary>
+    public void MarkRefunded(string? providerRefundId, decimal? amount = null)
+    {
+        Status = PaymentStatus.Refunded;
+        ProviderRefundId = string.IsNullOrWhiteSpace(providerRefundId) ? null : providerRefundId.Trim();
+        RefundedAmount = amount ?? Amount;
+        RefundedAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>True once a refund has been accepted by the provider for this payment.</summary>
+    public bool IsRefunded => Status == PaymentStatus.Refunded || ProviderRefundId is not null;
 }

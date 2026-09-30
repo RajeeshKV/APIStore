@@ -1,9 +1,13 @@
 namespace KromicCommerce.Domain.Catalog;
 
 /// <summary>
-/// A product-level attribute definition (e.g. "Color", "Material").
+/// A product-level attribute definition (e.g. "Color", "Storage", "Size").
 /// Values are stored as ProductAttributeValue records linked to this attribute.
 /// Used for storefront filtering and variant selection.
+///
+/// Attributes are generic: the catalogue has no hard-coded knowledge of size, colour or
+/// storage. A product declares the axes it varies on and a variant references one value per
+/// axis, which is what identifies that variant.
 /// </summary>
 public sealed class ProductAttribute : Entity
 {
@@ -13,6 +17,8 @@ public sealed class ProductAttribute : Entity
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Attribute name is required.", nameof(name));
+        if (sortOrder < 0)
+            throw new ArgumentException("Attribute sort order must be >= 0.", nameof(sortOrder));
 
         return new ProductAttribute
         {
@@ -30,10 +36,13 @@ public sealed class ProductAttribute : Entity
     public Product Product { get; private set; } = null!;
     private readonly List<ProductAttributeValue> _values = [];
     public IReadOnlyList<ProductAttributeValue> Values => _values.AsReadOnly();
+
+    /// <summary>Adds a value to the in-memory collection so it can be read back before saving.</summary>
+    public void AddValue(ProductAttributeValue value) => _values.Add(value);
 }
 
 /// <summary>
-/// A single selectable value for a ProductAttribute (e.g. "Red", "Blue").
+/// A single selectable value for a ProductAttribute (e.g. "128GB", "Red", "XL").
 /// </summary>
 public sealed class ProductAttributeValue : Entity
 {
@@ -43,6 +52,8 @@ public sealed class ProductAttributeValue : Entity
     {
         if (string.IsNullOrWhiteSpace(value))
             throw new ArgumentException("Attribute value is required.", nameof(value));
+        if (sortOrder < 0)
+            throw new ArgumentException("Attribute value sort order must be >= 0.", nameof(sortOrder));
 
         return new ProductAttributeValue
         {
@@ -58,4 +69,21 @@ public sealed class ProductAttributeValue : Entity
 
     // Navigation
     public ProductAttribute Attribute { get; private set; } = null!;
+
+    /// <summary>Renames the value. Used when an admin edits an existing selectable value in place.</summary>
+    public void Rename(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException("Attribute value is required.", nameof(value));
+
+        Value = value.Trim();
+    }
+
+    public void SetSortOrder(int sortOrder)
+    {
+        if (sortOrder < 0)
+            throw new ArgumentException("Attribute value sort order must be >= 0.", nameof(sortOrder));
+
+        SortOrder = sortOrder;
+    }
 }

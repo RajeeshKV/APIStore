@@ -15,6 +15,7 @@ internal sealed class GetStorefrontProductBySlugHandler(
     IBusinessSettingsService businessSettings,
     IStorefrontStockService stockService,
     IDeliveryEstimateService deliveryEstimate,
+    ICatalogCacheService catalogCache,
     IMemoryCache cache,
     IOptions<CatalogCacheOptions> cacheOpts,
     ILogger<GetStorefrontProductBySlugHandler> logger)
@@ -24,7 +25,11 @@ internal sealed class GetStorefrontProductBySlugHandler(
         GetStorefrontProductBySlugQuery query,
         CancellationToken cancellationToken)
     {
-        var cacheKey = CatalogCacheKeys.StorefrontProduct(query.Slug);
+        // Normalise the slug before it is used as a cache key as well as in the query,
+        // otherwise a whitespace-padded slug writes a second, unreachable cache entry.
+        var slug = CatalogCacheKeys.NormaliseSlug(query.Slug);
+        var cacheKey = CatalogCacheKeys.DeliveryScopedStorefrontProduct(
+            slug, catalogCache.GetShippingEpoch());
 
         if (cache.TryGetValue(cacheKey, out StorefrontProductResponse? cached) && cached is not null)
             return Result.Success(cached);
@@ -40,8 +45,7 @@ internal sealed class GetStorefrontProductBySlugHandler(
             .Include(p => p.Attributes).ThenInclude(a => a.Values)
             .Include(p => p.Variants)
             .FirstOrDefaultAsync(
-                p => p.Slug == query.Slug.Trim().ToLowerInvariant()
-                     && p.Status == ProductStatus.Active,
+                p => p.Slug == slug && p.Status == ProductStatus.Active,
                 cancellationToken);
 
         if (product is null)
@@ -93,19 +97,37 @@ internal sealed class GetStorefrontProductBySlugHandler(
             .ToList();
 
         // -----------------------------------------------------------------------
-        // Map variants — effective price + per-variant stock
+        // Map variants — effective price, per-variant stock, resolved option labels
         // -----------------------------------------------------------------------
+        // A variant carrying an unknown attribute value still appears, but with a smaller
+        // option list rather than being dropped, so a stale reference cannot hide a SKU.
+        var variantAttributeMap = await Features.Catalog.Products.Variants.VariantAttributeHelper
+            .ResolveAsync(db, product.Variants
+                .SelectMany(v => v.ParsedAttributeValueIds)
+                .Distinct()
+                .ToList(), cancellationToken);
+
         var variants = product.Variants
-            .OrderBy(v => v.SortOrder)
+            .OrderBy(v => v.SortOrder).ThenBy(v => v.CreatedAtUtc)
             .Select(v =>
             {
                 variantInventoryMap.TryGetValue(v.Id, out var vInv);
                 var vStock = stockService.GetStockResponse(vInv);
                 var effectivePrice = product.GetEffectivePrice(v);
+
+                // An inactive variant is never purchasable, whatever its stock says.
+                var canPurchase = v.IsActive && vStock.CanPurchase;
+
+                IReadOnlyList<VariantAttributeValueResponse> attributes =
+                    v.ParsedAttributeValueIds
+                        .Where(variantAttributeMap.ContainsKey)
+                        .Select(id => variantAttributeMap[id])
+                        .ToList();
+
                 return new StorefrontVariantResponse(
                     v.Id, v.Sku, effectivePrice,
                     v.SortOrder, v.IsActive, v.AttributeValueIds,
-                    vStock.Availability, vStock.CanPurchase);
+                    vStock.Availability, canPurchase, attributes);
             })
             .ToList();
 
@@ -122,13 +144,28 @@ internal sealed class GetStorefrontProductBySlugHandler(
             .ToList();
 
         // -----------------------------------------------------------------------
+        // Product-level availability
+        //
+        // When a product has variants, the purchasable stock lives on the variants — the base
+        // inventory row is typically absent or unstocked. Reporting only the base row would
+        // therefore advertise a product as buyable while every option is sold out, or hide a
+        // variant that is in stock. Variants win when present; the base row is the fallback
+        // for products without variants, which keeps those products behaving exactly as before.
+        // -----------------------------------------------------------------------
+        var productAvailability = variants.Count > 0
+            ? new PublicStockResponse(
+                Availability: RollUpVariantAvailability(variants),
+                CanPurchase: variants.Any(v => v.CanPurchase))
+            : baseStock;
+
+        // -----------------------------------------------------------------------
         // Build response
         // -----------------------------------------------------------------------
         var response = new StorefrontProductResponse(
             product.Id, product.Name, product.Slug,
             product.Description, product.ShortDescription,
             product.Price, product.CompareAtPrice, currency,
-            baseStock.Availability, baseStock.CanPurchase,
+            productAvailability.Availability, productAvailability.CanPurchase,
             product.CategoryId, product.Category?.Name, product.Category?.Slug,
             product.BrandId, product.Brand?.Name, product.Brand?.Slug,
             product.IsFeatured,
@@ -136,7 +173,9 @@ internal sealed class GetStorefrontProductBySlugHandler(
             estimate,
             product.MetaTitle, product.MetaDescription, product.MetaKeywords);
 
-        // Cache the public response
+        // Cache the public response under a shipping-configuration scoped key, so that a
+        // shipping or COD change invalidates every product page (the response embeds a
+        // delivery estimate) without the cache having to know which slugs are cached.
         cache.Set(cacheKey, response, new MemoryCacheEntryOptions
         {
             AbsoluteExpirationRelativeToNow =
@@ -146,5 +185,22 @@ internal sealed class GetStorefrontProductBySlugHandler(
 
         logger.LogDebug("Storefront product detail loaded and cached: {Slug}", query.Slug);
         return Result.Success(response);
+    }
+
+    /// <summary>
+    /// Rolls per-variant availability up to a product-level value:
+    /// any variant in stock → InStock; variants exist but none in stock → OutOfStock.
+    /// A low-stock-only rollup is deliberately not surfaced — it is a per-variant signal and
+    /// the product-level field is a coarse "can this be bought at all" indicator.
+    /// </summary>
+    private static StockAvailability RollUpVariantAvailability(
+        IReadOnlyList<StorefrontVariantResponse> variants)
+    {
+        if (variants.Any(v => v.StockAvailability == StockAvailability.InStock))
+            return StockAvailability.InStock;
+
+        return variants.Any(v => v.StockAvailability == StockAvailability.LowStock)
+            ? StockAvailability.LowStock
+            : StockAvailability.OutOfStock;
     }
 }

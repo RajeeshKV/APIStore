@@ -2,8 +2,17 @@ namespace KromicCommerce.Application.Abstractions.Catalog;
 
 /// <summary>
 /// Typed catalog cache invalidation contract.
+///
 /// Every mutation handler must call the relevant method after SaveChangesAsync.
 /// Invalidation happens only after successful persistence — never before.
+///
+/// Dependency-aware invalidation
+/// ------------------------------
+/// Cached projections are not independent: the storefront brand and category lists embed a
+/// ProductCount computed from the products table, and the featured list embeds per-product
+/// stock. A single product mutation therefore invalidates more than the product's own key.
+/// Callers should prefer the coarse-grained <c>*Graph</c> methods over assembling several
+/// fine-grained calls by hand — that is what keeps dependent projections from going stale.
 /// </summary>
 public interface ICatalogCacheService
 {
@@ -22,4 +31,49 @@ public interface ICatalogCacheService
     void InvalidateStorefrontBrands();
     void InvalidateStorefrontProduct(string slug);
     void InvalidateStorefrontFeatured();
+
+    // -----------------------------------------------------------------------
+    // Dependency-aware (graph) invalidation
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Invalidates every projection that depends on the product table: the product
+    /// projections, the featured list, and the brand/category lists that embed ProductCount.
+    /// Call after any product create/update/status change/delete.
+    /// </summary>
+    void InvalidateProductGraph();
+
+    /// <summary>
+    /// Invalidates a single product and every projection that depends on it:
+    /// the product's own entries, the featured list, and the brand/category ProductCounts.
+    /// </summary>
+    void InvalidateProductGraph(Guid productId, string? slug);
+
+    /// <summary>
+    /// Invalidates availability-dependent projections for one product: the product page
+    /// and the featured list. Use after stock mutations, which never change counts.
+    /// </summary>
+    void InvalidateStockGraph(string? slug);
+
+    /// <summary>Invalidates both the admin and storefront brand projections.</summary>
+    void InvalidateBrandGraph();
+
+    /// <summary>Invalidates both the admin and storefront category projections.</summary>
+    void InvalidateCategoryGraph();
+
+    /// <summary>
+    /// Invalidates every cache entry that embeds data derived from the shipping /
+    /// cash-on-delivery configuration.
+    ///
+    /// Storefront product detail responses embed a delivery estimate computed from
+    /// BusinessSettings.Delivery. IMemoryCache cannot prefix-delete, so the entries are
+    /// addressed through a shipping epoch (see <c>CatalogCacheKeys.ShippingEpochKey</c>);
+    /// bumping it makes every previously written delivery-scoped entry unreachable.
+    /// The cached BusinessSettings object itself is evicted separately by
+    /// <c>IBusinessSettingsService.InvalidateShipping()</c>.
+    /// </summary>
+    void InvalidateShippingConfiguration();
+
+    /// <summary>Current shipping-configuration epoch, used to build delivery-scoped keys.</summary>
+    int GetShippingEpoch();
 }

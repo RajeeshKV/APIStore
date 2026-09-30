@@ -20,8 +20,7 @@ internal sealed class CreateBrandHandler(
         var brand = Brand.Create(command.Name, command.Slug, command.Description, command.WebsiteUrl);
         db.Brands.Add(brand);
         await db.SaveChangesAsync(cancellationToken);
-        cache.InvalidateBrands();
-        cache.InvalidateStorefrontBrands();
+        cache.InvalidateBrandGraph();
 
         logger.LogInformation("Brand created: {Slug}", brand.Slug);
         return Result.Success(MapToResponse(brand));

@@ -22,9 +22,7 @@ public sealed class CheckoutAddressAuthorizationTests
         var handler = new CheckoutHandler(
             db.Object,
             Mock.Of<IBusinessSettingsService>(),
-            Mock.Of<IShippingCalculationService>(),
-            Mock.Of<ITaxCalculationService>(),
-            Mock.Of<IPromotionService>(),
+            Mock.Of<ICheckoutSummaryService>(),
             Mock.Of<IPaymentGateway>(),
             NullLogger<CheckoutHandler>.Instance);
 

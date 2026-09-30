@@ -13,12 +13,19 @@ internal static class ProductMapper
                 new MediaAssetDto(i.Asset.PublicId, i.Asset.SecureUrl, i.Asset.Format,
                     i.Asset.Width, i.Asset.Height, i.Asset.AltText),
                 i.SortOrder, i.IsPrimary)).ToList(),
-            p.Attributes.Select(a => new ProductAttributeDto(a.Id, a.Name, a.SortOrder,
+            p.Attributes.OrderBy(a => a.SortOrder).Select(a => new ProductAttributeDto(
+                a.Id, a.Name, a.SortOrder,
                 a.Values.Select(v => new AttributeValueDto(v.Id, v.Value, v.SortOrder))
                     .OrderBy(v => v.SortOrder).ToList())).ToList(),
-            p.Variants.Select(v => new VariantResponse(
-                v.Id, v.Sku, v.PriceOverride, v.SortOrder, v.IsActive, v.AttributeValueIds,
-                null)).ToList(),
+            // Variants are ordered explicitly, matching the storefront projection, so the
+            // admin list and the customer-facing selector agree on display order.
+            // Resolved attribute names are not available here (the product is loaded without
+            // an attribute-value join), so Attributes is left null and the variant detail
+            // endpoints supply it.
+            p.Variants.OrderBy(v => v.SortOrder).ThenBy(v => v.CreatedAtUtc)
+                .Select(v => new VariantResponse(
+                    v.Id, v.Sku, v.PriceOverride, v.SortOrder, v.IsActive, v.AttributeValueIds,
+                    null)).ToList(),
             p.CreatedAtUtc, p.UpdatedAtUtc);
 
     internal static ProductSummaryResponse MapToSummary(Product p, int? available = null) =>

@@ -41,7 +41,10 @@ internal sealed class CreateProductHandler(
 
         db.Products.Add(product);
         await db.SaveChangesAsync(cancellationToken);
-        cache.InvalidateProducts();
+
+        // A new product changes the brand and category product counts embedded in the
+        // storefront lists, not just the product projections.
+        cache.InvalidateProductGraph();
 
         logger.LogInformation("Product created: {Slug}", product.Slug);
         return Result.Success(ProductMapper.MapToResponse(product));

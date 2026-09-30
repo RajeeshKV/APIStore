@@ -24,8 +24,7 @@ internal sealed class CreateCategoryHandler(
 
         db.Categories.Add(category);
         await db.SaveChangesAsync(cancellationToken);
-        cache.InvalidateCategories();
-        cache.InvalidateStorefrontCategories();
+        cache.InvalidateCategoryGraph();
 
         logger.LogInformation("Category created: {Slug}", category.Slug);
 

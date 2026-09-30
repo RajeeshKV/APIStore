@@ -27,8 +27,7 @@ internal sealed class DeleteCategoryHandler(
 
         db.Categories.Remove(category);
         await db.SaveChangesAsync(cancellationToken);
-        cache.InvalidateCategories();
-        cache.InvalidateStorefrontCategories();
+        cache.InvalidateCategoryGraph();
         return Result.Success();
     }
 }

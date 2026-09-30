@@ -43,6 +43,17 @@ public sealed class Cart : AuditableEntity
 
     public DateTime ExpiresAt { get; private set; }
 
+    /// <summary>
+    /// Coupon code currently applied to this cart, already normalised (trimmed, upper-cased)
+    /// by <see cref="ApplyCoupon"/>. Null when no coupon is applied.
+    ///
+    /// Storing the code (never the discount) keeps the backend authoritative: the discount
+    /// is always recalculated by IPromotionService against the current cart contents and the
+    /// current promotion rules, so a code that later expires or becomes ineligible simply
+    /// stops discounting instead of silently carrying a stale amount forward.
+    /// </summary>
+    public string? CouponCode { get; private set; }
+
     private readonly List<CartItem> _items = [];
     public IReadOnlyList<CartItem> Items => _items.AsReadOnly();
 
@@ -98,4 +109,19 @@ public sealed class Cart : AuditableEntity
     }
 
     public void Clear() => _items.Clear();
+
+    /// <summary>
+    /// Stores a coupon code on the cart. Only the code is persisted — validity and the
+    /// discount amount are decided by the application layer on every pricing pass.
+    /// </summary>
+    public void ApplyCoupon(string couponCode)
+    {
+        if (string.IsNullOrWhiteSpace(couponCode))
+            throw new ArgumentException("Coupon code must not be empty.", nameof(couponCode));
+
+        CouponCode = couponCode.Trim().ToUpperInvariant();
+    }
+
+    /// <summary>Removes any applied coupon. Idempotent.</summary>
+    public void RemoveCoupon() => CouponCode = null;
 }

@@ -8,7 +8,9 @@ internal sealed class CreateVariantValidator : AbstractValidator<CreateVariantCo
         RuleFor(x => x.PriceOverride)
             .GreaterThanOrEqualTo(0).WithMessage("Variant price override must be >= 0.")
             .When(x => x.PriceOverride.HasValue);
-        RuleFor(x => x.SortOrder).GreaterThanOrEqualTo(0);
+        RuleFor(x => x.SortOrder)
+            .GreaterThanOrEqualTo(0).WithMessage("Variant sort order must be >= 0.")
+            .When(x => x.SortOrder.HasValue);
     }
 }
 
@@ -20,6 +22,7 @@ internal sealed class UpdateVariantValidator : AbstractValidator<UpdateVariantCo
         RuleFor(x => x.PriceOverride)
             .GreaterThanOrEqualTo(0).WithMessage("Variant price override must be >= 0.")
             .When(x => x.PriceOverride.HasValue);
-        RuleFor(x => x.SortOrder).GreaterThanOrEqualTo(0);
+        RuleFor(x => x.SortOrder)
+            .GreaterThanOrEqualTo(0).WithMessage("Variant sort order must be >= 0.");
     }
 }

@@ -41,7 +41,12 @@ internal sealed class CreateVariantHandler(IApplicationDbContext db, ICatalogCac
                 return Result.Failure<VariantResponse>(dupCheck);
         }
 
-        var variant = ProductVariant.Create(cmd.ProductId, cmd.Sku, cmd.PriceOverride, cmd.SortOrder);
+        // Automatic sort order: an explicit position wins, otherwise the variant is appended
+        // after the current maximum so the admin UI never has to manage ordering on create.
+        var sortOrder = cmd.SortOrder
+            ?? await VariantAttributeHelper.NextSortOrderAsync(db, cmd.ProductId, ct);
+
+        var variant = ProductVariant.Create(cmd.ProductId, cmd.Sku, cmd.PriceOverride, sortOrder);
         if (cmd.AttributeValueIds?.Count > 0)
             variant.SetAttributeValues(VariantAttributeHelper.SortedIds(cmd.AttributeValueIds));
 
@@ -53,14 +58,15 @@ internal sealed class CreateVariantHandler(IApplicationDbContext db, ICatalogCac
 
         await db.SaveChangesAsync(ct);
 
-        cache.InvalidateProduct(cmd.ProductId);
-        cache.InvalidateStorefrontProduct(product.Slug);
-        if (product.IsFeatured) cache.InvalidateStorefrontFeatured();
+        var attributes = await VariantAttributeResolution.ResolveAsync(db, variant, ct);
+
+        cache.InvalidateProductGraph(cmd.ProductId, product.Slug);
 
         return Result.Success(new VariantResponse(
             variant.Id, variant.Sku, variant.PriceOverride,
             variant.SortOrder, variant.IsActive, variant.AttributeValueIds,
-            AvailableStock: 0));
+            AvailableStock: 0,
+            Attributes: attributes));
     }
 }
 
@@ -100,27 +106,23 @@ internal sealed class UpdateVariantHandler(IApplicationDbContext db, ICatalogCac
 
         var product = await db.Products
             .Where(p => p.Id == cmd.ProductId)
-            .Select(p => new { p.Slug, p.IsFeatured })
+            .Select(p => new { p.Slug })
             .FirstOrDefaultAsync(ct);
 
         await db.SaveChangesAsync(ct);
 
-        cache.InvalidateProduct(cmd.ProductId);
-        if (product is not null)
-        {
-            cache.InvalidateStorefrontProduct(product.Slug);
-            if (product.IsFeatured) cache.InvalidateStorefrontFeatured();
-        }
+        cache.InvalidateProductGraph(cmd.ProductId, product?.Slug);
 
+        var attributes = await VariantAttributeResolution.ResolveAsync(db, variant, ct);
         var inventoryItem = await db.InventoryItems
             .Where(i => i.VariantId == cmd.VariantId)
             .FirstOrDefaultAsync(ct);
-        var availableStock = inventoryItem?.Available;
 
         return Result.Success(new VariantResponse(
             variant.Id, variant.Sku, variant.PriceOverride,
             variant.SortOrder, variant.IsActive, variant.AttributeValueIds,
-            AvailableStock: availableStock));
+            AvailableStock: inventoryItem?.Available,
+            Attributes: attributes));
     }
 }
 
@@ -136,7 +138,7 @@ internal sealed class DeleteVariantHandler(IApplicationDbContext db, ICatalogCac
 
         var product = await db.Products
             .Where(p => p.Id == cmd.ProductId)
-            .Select(p => new { p.Slug, p.IsFeatured })
+            .Select(p => new { p.Slug })
             .FirstOrDefaultAsync(ct);
 
         // Remove associated inventory item if it exists
@@ -148,14 +150,29 @@ internal sealed class DeleteVariantHandler(IApplicationDbContext db, ICatalogCac
         db.ProductVariants.Remove(variant);
         await db.SaveChangesAsync(ct);
 
-        cache.InvalidateProduct(cmd.ProductId);
-        if (product is not null)
-        {
-            cache.InvalidateStorefrontProduct(product.Slug);
-            if (product.IsFeatured) cache.InvalidateStorefrontFeatured();
-        }
+        cache.InvalidateProductGraph(cmd.ProductId, product?.Slug);
 
         return Result.Success();
+    }
+}
+
+/// <summary>Resolves a variant's stored attribute value IDs into display-ready name/value pairs.</summary>
+internal static class VariantAttributeResolution
+{
+    public static async Task<IReadOnlyList<VariantAttributeValueResponse>> ResolveAsync(
+        IApplicationDbContext db, ProductVariant variant, CancellationToken ct)
+    {
+        var ids = variant.ParsedAttributeValueIds;
+        if (ids.Count == 0) return [];
+
+        var map = await VariantAttributeHelper.ResolveAsync(db, ids, ct);
+
+        // Preserve the variant's own stored ordering so the display order matches the
+        // selection order the admin configured, not the database's arbitrary return order.
+        return ids
+            .Where(map.ContainsKey)
+            .Select(id => map[id])
+            .ToList();
     }
 }
 
@@ -251,5 +268,53 @@ internal static class VariantAttributeHelper
                 "A variant with the same attribute combination already exists.");
 
         return null;
+    }
+
+    /// <summary>
+    /// Resolves variants' stored attribute-value IDs into display-ready name/value pairs.
+    ///
+    /// Variants persist only the value IDs (a CSV column) so that renaming a value such as
+    /// "128GB" needs no data migration. Resolution happens here, once, so every response that
+    /// shows variant options resolves them identically instead of each mapper re-implementing
+    /// the lookup. IDs with no matching row — a value deleted after a variant referenced it —
+    /// are skipped, so a partially orphaned variant degrades to a smaller option set rather
+    /// than failing the whole response.
+    /// </summary>
+    public static async Task<IReadOnlyDictionary<Guid, VariantAttributeValueResponse>> ResolveAsync(
+        IApplicationDbContext db,
+        IReadOnlyCollection<Guid> attributeValueIds,
+        CancellationToken ct)
+    {
+        var result = new Dictionary<Guid, VariantAttributeValueResponse>();
+        if (attributeValueIds.Count == 0) return result;
+
+        var rows = await db.ProductAttributeValues
+            .AsNoTracking()
+            .Where(av => attributeValueIds.Contains(av.Id))
+            .Select(av => new { av.Id, av.AttributeId, av.Value, AttributeName = av.Attribute!.Name })
+            .ToListAsync(ct);
+
+        foreach (var row in rows)
+            result[row.Id] = new VariantAttributeValueResponse(row.Id, row.AttributeId, row.AttributeName, row.Value);
+
+        return result;
+    }
+
+    /// <summary>
+    /// The sort order to give a newly created variant when the admin did not specify one.
+    ///
+    /// Appending after the current maximum keeps the admin's manual ordering intact and makes
+    /// "create a variant" a single fieldless action, which is what removes the need for the
+    /// admin UI to manage sort order at all. The first variant of a product still gets 0,
+    /// so behaviour is unchanged for the common single-variant case.
+    /// </summary>
+    public static async Task<int> NextSortOrderAsync(
+        IApplicationDbContext db, Guid productId, CancellationToken ct)
+    {
+        var max = await db.ProductVariants
+            .Where(v => v.ProductId == productId)
+            .Select(v => (int?)v.SortOrder)
+            .MaxAsync(ct);
+        return (max ?? -1) + 1;
     }
 }

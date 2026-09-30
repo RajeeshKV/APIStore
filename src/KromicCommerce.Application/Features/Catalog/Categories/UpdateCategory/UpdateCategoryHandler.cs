@@ -26,8 +26,7 @@ internal sealed class UpdateCategoryHandler(
         }
 
         await db.SaveChangesAsync(cancellationToken);
-        cache.InvalidateCategories();
-        cache.InvalidateStorefrontCategories();
+        cache.InvalidateCategoryGraph();
 
         string? parentName = null;
         if (category.ParentCategoryId.HasValue)

@@ -20,8 +20,7 @@ internal sealed class DeleteBrandHandler(
 
         db.Brands.Remove(brand);
         await db.SaveChangesAsync(cancellationToken);
-        cache.InvalidateBrands();
-        cache.InvalidateStorefrontBrands();
+        cache.InvalidateBrandGraph();
         return Result.Success();
     }
 }

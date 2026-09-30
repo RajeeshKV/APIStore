@@ -44,7 +44,11 @@ public sealed class EmailSettings : ValueObject
         {
             Mode = mode,
             SenderName = senderName.Trim(),
-            SenderEmail = senderEmail?.Trim()
+            // KromicManaged sends from Kromic's own shared account, so the store's sender
+            // address is meaningless in that mode. Normalising it to null means switching
+            // modes and back cannot leave a stale address behind, and the admin UI has
+            // nothing to show for a field the mode does not use.
+            SenderEmail = mode == EmailMode.KromicManaged ? null : senderEmail!.Trim()
         };
     }
 

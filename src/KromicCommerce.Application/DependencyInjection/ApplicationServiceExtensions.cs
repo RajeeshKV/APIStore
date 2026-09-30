@@ -29,6 +29,11 @@ public static class ApplicationServiceExtensions
         services.AddSingleton<IShippingCalculationService, ShippingCalculationService>();
         services.AddSingleton<ITaxCalculationService, TaxCalculationService>();
 
+        // Order workflow services — shared so the customer and admin cancellation paths
+        // cannot diverge in their refund-before-cancel semantics.
+        services.AddScoped<Features.Orders.OrderCancellationService>();
+        services.AddScoped<ICheckoutSummaryService, Services.CheckoutSummaryService>();
+
         return services;
     }
 }

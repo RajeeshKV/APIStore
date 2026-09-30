@@ -1,5 +1,4 @@
 using System.Text.Json;
-using KromicCommerce.Application.Abstractions.Payments;
 using KromicCommerce.Application.Features.Orders.GetMyOrders;
 using KromicCommerce.Contracts.Orders;
 
@@ -7,7 +6,7 @@ namespace KromicCommerce.Application.Features.Orders.Admin;
 
 internal sealed class UpdateOrderStatusHandler(
     IApplicationDbContext db,
-    IPaymentGateway paymentGateway,
+    OrderCancellationService cancellation,
     ILogger<UpdateOrderStatusHandler> logger)
     : ICommandHandler<UpdateOrderStatusCommand, OrderResponse>
 {
@@ -21,10 +20,16 @@ internal sealed class UpdateOrderStatusHandler(
             return Result.Failure<OrderResponse>(Error.NotFound("ORDER_NOT_FOUND", "Order not found."));
 
         // -----------------------------------------------------------------------
-        // Admin cancel — may trigger refund for paid Razorpay orders
+        // Admin cancel — refunds a captured Razorpay payment before cancelling
         // -----------------------------------------------------------------------
         if (command.Status == OrderStatus.Cancelled)
-            return await CancelOrderAsync(order, command.Reason, ct);
+        {
+            var cancelled = await cancellation.CancelAsync(order, command.Reason, "admin", ct);
+            if (!cancelled.IsSuccess)
+                return Result.Failure<OrderResponse>(cancelled.Error);
+
+            return Result.Success(await BuildResponseAsync(order, ct));
+        }
 
         // -----------------------------------------------------------------------
         // Standard status transitions
@@ -69,65 +74,6 @@ internal sealed class UpdateOrderStatusHandler(
     }
 
     // -----------------------------------------------------------------------
-    // Cancel + conditional refund
-    // -----------------------------------------------------------------------
-    private async Task<Result<OrderResponse>> CancelOrderAsync(Order order, string? reason, CancellationToken ct)
-    {
-        try { order.Cancel(reason); }
-        catch (InvalidOperationException ex)
-        {
-            return Result.Failure<OrderResponse>(Error.Conflict("INVALID_ORDER_TRANSITION", ex.Message));
-        }
-
-        // Release inventory reservations on cancellation
-        await ReleaseInventoryAsync(order, ct);
-
-        if (order.PaymentMethod == PaymentMethod.Razorpay)
-        {
-            var payment = await db.Payments.FirstOrDefaultAsync(
-                p => p.OrderId == order.Id && p.Status == PaymentStatus.Paid, ct);
-
-            if (payment is not null && !string.IsNullOrWhiteSpace(payment.ProviderPaymentId))
-            {
-                var refundNote = string.IsNullOrWhiteSpace(reason)
-                    ? "Cancelled by admin"
-                    : $"Cancelled by admin: {reason}";
-
-                var refundResult = await paymentGateway.RefundAsync(
-                    payment.ProviderPaymentId, payment.Amount, refundNote, ct);
-
-                if (refundResult.Success)
-                {
-                    try { order.MarkRefundPending(); }
-                    catch (InvalidOperationException)
-                    {
-                        logger.LogWarning("Could not mark order {OrderId} RefundPending after refund", order.Id);
-                    }
-                    logger.LogInformation("Refund initiated for Order {OrderId}. RefundId: {RefundId}",
-                        order.Id, refundResult.ProviderRefundId);
-                }
-                else
-                {
-                    logger.LogError("Refund failed for Order {OrderId}: {Error}", order.Id, refundResult.ErrorMessage);
-                    // Publish cancellation event even if refund fails — order is still cancelled
-                    db.OutboxEvents.Add(OutboxEvent.Create("OrderCancelled", BuildCancelPayload(order, reason)));
-                    await db.SaveChangesAsync(ct);
-                    return Result.Failure<OrderResponse>(Error.Conflict("REFUND_FAILED",
-                        $"Order cancelled but refund could not be initiated: {refundResult.ErrorMessage}. " +
-                        "Please process the refund manually via the Razorpay dashboard."));
-                }
-            }
-        }
-
-        db.OutboxEvents.Add(OutboxEvent.Create("OrderCancelled", BuildCancelPayload(order, reason)));
-        await db.SaveChangesAsync(ct);
-        logger.LogInformation("Order {OrderId} cancelled by admin. Reason: {Reason}",
-            order.Id, reason ?? "none");
-
-        return Result.Success(await BuildResponseAsync(order, ct));
-    }
-
-    // -----------------------------------------------------------------------
     // Inventory helpers
     // -----------------------------------------------------------------------
 
@@ -148,28 +94,6 @@ internal sealed class UpdateOrderStatusHandler(
             {
                 logger.LogError(ex,
                     "FinalizeReservation failed for OrderItem {ItemId} Product {ProductId}",
-                    item.Id, item.ProductId);
-            }
-        }
-    }
-
-    private async Task ReleaseInventoryAsync(Order order, CancellationToken ct)
-    {
-        var productIds = order.Items.Select(i => i.ProductId).ToList();
-        var inventoryItems = await db.InventoryItems
-            .Where(i => productIds.Contains(i.ProductId))
-            .ToListAsync(ct);
-
-        foreach (var item in order.Items)
-        {
-            var inv = inventoryItems.FirstOrDefault(
-                i => i.ProductId == item.ProductId && i.VariantId == item.VariantId);
-            if (inv is null) continue;
-            try { inv.Release(item.Quantity); }
-            catch (Exception ex)
-            {
-                logger.LogError(ex,
-                    "Inventory release failed for OrderItem {ItemId} Product {ProductId}",
                     item.Id, item.ProductId);
             }
         }
@@ -198,14 +122,6 @@ internal sealed class UpdateOrderStatusHandler(
             order.GrandTotal, order.CurrencyCode,
             TrackingNumber = cmd.TrackingNumber,
             TrackingProvider = cmd.TrackingProvider
-        });
-
-    private static string BuildCancelPayload(Order order, string? reason) =>
-        JsonSerializer.Serialize(new
-        {
-            order.Id, order.OrderNumber, order.CustomerId,
-            order.GrandTotal, order.CurrencyCode,
-            Reason = reason
         });
 
     private async Task<OrderResponse> BuildResponseAsync(Order order, CancellationToken ct)

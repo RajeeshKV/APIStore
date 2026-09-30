@@ -22,8 +22,13 @@ internal sealed class InventoryItemConfiguration : IEntityTypeConfiguration<Inve
             .ValueGeneratedOnAddOrUpdate()
             .IsConcurrencyToken();
 
+        // One inventory row per (product, variant), where a null VariantId is the base product.
+        // A plain unique index treats NULLs as distinct in PostgreSQL, so without NULLS NOT
+        // DISTINCT several base-product rows could exist and stock would be read from an
+        // arbitrary one of them. This matches the treatment already given to cart items.
         builder.HasIndex(i => new { i.ProductId, i.VariantId })
-            .IsUnique().HasDatabaseName("ix_inventory_items_product_variant");
+            .IsUnique()
+            .HasDatabaseName("ix_inventory_items_product_variant");
 
         builder.HasOne(i => i.Product)
             .WithMany().HasForeignKey(i => i.ProductId).OnDelete(DeleteBehavior.Cascade);

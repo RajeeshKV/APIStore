@@ -2,6 +2,7 @@ using Asp.Versioning;
 using KromicCommerce.Application.Abstractions.Auth;
 using KromicCommerce.Application.Abstractions.Store;
 using KromicCommerce.Application.Features.Checkout;
+using KromicCommerce.Application.Features.Checkout.GetCheckoutSummary;
 using KromicCommerce.Contracts.Orders;
 using Microsoft.AspNetCore.Authorization;
 
@@ -22,6 +23,34 @@ public sealed class CheckoutController(
     IBusinessSettingsService businessSettings)
     : ControllerBase
 {
+    /// <summary>
+    /// Returns the complete checkout summary for the current cart — the authoritative
+    /// pre-payment quote.
+    ///
+    /// Every amount is server-calculated from live catalog prices, the cart, the stored or
+    /// supplied coupon, and the shipping/tax configuration. Call this before rendering the
+    /// order total; never compute a total on the client. The same engine backs POST /checkout,
+    /// so what is shown here is what will be charged.
+    ///
+    /// Pass <c>paymentMethod=CashOnDelivery</c> to include the COD fee; omit it (or pass
+    /// <c>Razorpay</c>) for an online-payment quote.
+    /// </summary>
+    [HttpGet("checkout/summary")]
+    [ProducesResponseType(typeof(CheckoutSummaryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetSummary(
+        [FromQuery] GetCheckoutSummaryRequest request, CancellationToken ct)
+    {
+        var userId = currentUser.UserId;
+        if (userId is null) return Unauthorized();
+
+        var result = await mediator.Send(new GetCheckoutSummaryQuery(
+            userId.Value, request.PaymentMethod, request.CouponCode), ct);
+
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
+    }
+
     /// <summary>
     /// Initiates checkout from the current cart.
     /// Server calculates subtotal, shipping, COD fee, and grand total.

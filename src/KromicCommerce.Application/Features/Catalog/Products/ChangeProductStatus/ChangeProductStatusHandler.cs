@@ -11,9 +11,7 @@ internal sealed class PublishProductHandler(IApplicationDbContext db, ICatalogCa
         if (product is null) return Result.Failure(Error.NotFound("PRODUCT_NOT_FOUND", "Product not found."));
         product.Publish();
         await db.SaveChangesAsync(ct);
-        cache.InvalidateProduct(cmd.ProductId);
-        cache.InvalidateStorefrontProduct(product.Slug);
-        cache.InvalidateStorefrontFeatured();
+        cache.InvalidateProductGraph(cmd.ProductId, product.Slug);
         return Result.Success();
     }
 }
@@ -27,9 +25,7 @@ internal sealed class ArchiveProductHandler(IApplicationDbContext db, ICatalogCa
         if (product is null) return Result.Failure(Error.NotFound("PRODUCT_NOT_FOUND", "Product not found."));
         product.Archive();
         await db.SaveChangesAsync(ct);
-        cache.InvalidateProduct(cmd.ProductId);
-        cache.InvalidateStorefrontProduct(product.Slug);
-        cache.InvalidateStorefrontFeatured();
+        cache.InvalidateProductGraph(cmd.ProductId, product.Slug);
         return Result.Success();
     }
 }
@@ -43,9 +39,7 @@ internal sealed class UnpublishProductHandler(IApplicationDbContext db, ICatalog
         if (product is null) return Result.Failure(Error.NotFound("PRODUCT_NOT_FOUND", "Product not found."));
         product.Unpublish();
         await db.SaveChangesAsync(ct);
-        cache.InvalidateProduct(cmd.ProductId);
-        cache.InvalidateStorefrontProduct(product.Slug);
-        cache.InvalidateStorefrontFeatured();
+        cache.InvalidateProductGraph(cmd.ProductId, product.Slug);
         return Result.Success();
     }
 }

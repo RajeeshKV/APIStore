@@ -1,3 +1,4 @@
+using KromicCommerce.Application.Abstractions.Catalog;
 using KromicCommerce.Application.Abstractions.Store;
 using KromicCommerce.Infrastructure.Caching;
 using KromicCommerce.Infrastructure.Configuration;
@@ -16,6 +17,7 @@ namespace KromicCommerce.Infrastructure.Store;
 internal sealed class BusinessSettingsService(
     AppDbContext db,
     IMemoryCache cache,
+    ICatalogCacheService catalogCache,
     IOptions<CacheOptions> cacheOptions,
     ILogger<BusinessSettingsService> logger) : IBusinessSettingsService
 {
@@ -52,5 +54,16 @@ internal sealed class BusinessSettingsService(
     {
         cache.Remove(CacheKeys.BusinessSettings);
         logger.LogDebug("BusinessSettings cache invalidated.");
+    }
+
+    public void InvalidateShipping()
+    {
+        Invalidate();
+        // Storefront product pages embed a delivery estimate derived from DeliverySettings,
+        // so they must go stale together with the settings object itself.
+        catalogCache.InvalidateShippingConfiguration();
+        logger.LogDebug(
+            "Shipping/COD configuration caches invalidated (epoch {Epoch}).",
+            catalogCache.GetShippingEpoch());
     }
 }

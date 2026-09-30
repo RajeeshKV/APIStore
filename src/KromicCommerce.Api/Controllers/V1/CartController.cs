@@ -2,10 +2,12 @@ using Asp.Versioning;
 using KromicCommerce.Application.Abstractions.Auth;
 using KromicCommerce.Application.Features.Cart.AddCartItem;
 using KromicCommerce.Application.Features.Cart.ClearCart;
+using KromicCommerce.Application.Features.Cart.Coupon;
 using KromicCommerce.Application.Features.Cart.GetCart;
 using KromicCommerce.Application.Features.Cart.RemoveCartItem;
 using KromicCommerce.Application.Features.Cart.UpdateCartItem;
 using KromicCommerce.Contracts.Cart;
+using KromicCommerce.Contracts.Orders;
 using Microsoft.AspNetCore.Authorization;
 
 namespace KromicCommerce.Api.Controllers.V1;
@@ -78,6 +80,48 @@ public sealed class CartController(IMediator mediator, ICurrentUserService curre
         var (customerId, anonId) = ResolveCartOwner();
         await mediator.Send(new ClearCartCommand(customerId, anonId), ct);
         return NoContent();
+    }
+
+    /// <summary>
+    /// Applies a coupon to the current cart.
+    ///
+    /// Requires an authenticated customer — anonymous carts cannot hold a coupon. The backend
+    /// re-validates every coupon rule and returns the COMPLETE recalculated checkout summary,
+    /// not just a discount amount. Reject with 400 and a specific code (COUPON_NOT_FOUND,
+    /// COUPON_INACTIVE, COUPON_EXHAUSTED, COUPON_CUSTOMER_LIMIT, COUPON_FIRST_ORDER_ONLY,
+    /// COUPON_MINIMUM_NOT_MET, COUPON_NOT_APPLICABLE) when the coupon cannot be used; the
+    /// cart is left unchanged in that case.
+    /// </summary>
+    [HttpPost("coupon")]
+    [ProducesResponseType(typeof(CheckoutSummaryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ApplyCoupon(
+        [FromBody] ApplyCouponRequest request, CancellationToken ct)
+    {
+        var (customerId, _) = ResolveCartOwner();
+        if (customerId is null) return Unauthorized();
+
+        var result = await mediator.Send(
+            new ApplyCouponCommand(customerId.Value, request.CouponCode), ct);
+
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
+    }
+
+    /// <summary>
+    /// Removes the coupon from the current cart and returns the recalculated summary
+    /// without a discount. Idempotent.
+    /// </summary>
+    [HttpDelete("coupon")]
+    [ProducesResponseType(typeof(CheckoutSummaryResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> RemoveCoupon(CancellationToken ct)
+    {
+        var (customerId, _) = ResolveCartOwner();
+        if (customerId is null) return Unauthorized();
+
+        var result = await mediator.Send(new RemoveCouponCommand(customerId.Value), ct);
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
     // -----------------------------------------------------------------------

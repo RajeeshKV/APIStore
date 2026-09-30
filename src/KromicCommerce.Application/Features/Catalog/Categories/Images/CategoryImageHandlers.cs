@@ -27,9 +27,7 @@ internal sealed class UploadCategoryImageHandler(
 
         category.SetImage(cmd.PublicId, cmd.SecureUrl);
         await db.SaveChangesAsync(cancellationToken);
-
-        cache.InvalidateCategories();
-        cache.InvalidateStorefrontCategories();
+        cache.InvalidateCategoryGraph();
 
         // Delete the old Cloudinary asset after the new reference is safely committed.
         // Failure is non-fatal: the DB is correct; the orphaned asset can be
@@ -75,9 +73,7 @@ internal sealed class DeleteCategoryImageHandler(
 
         category.ClearImage();
         await db.SaveChangesAsync(cancellationToken);
-
-        cache.InvalidateCategories();
-        cache.InvalidateStorefrontCategories();
+        cache.InvalidateCategoryGraph();
 
         // Delete Cloudinary asset after DB commit — never before
         var deleteResult = await cloudinary.DeleteAsync(publicId, cancellationToken);

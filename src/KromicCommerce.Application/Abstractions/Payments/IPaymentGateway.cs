@@ -43,13 +43,23 @@ public interface IPaymentGateway
 
     /// <summary>
     /// Initiates a full refund for a previously captured payment.
-    /// Called by the admin cancel flow when the order has a paid Razorpay payment.
-    /// Speed is "normal" by default — refunds appear in 5-7 business days.
+    ///
+    /// Called by the cancellation flow when the order has a captured Razorpay payment.
+    /// Speed is "normal" by default — refunds appear in 5-7 business days, so a successful
+    /// result means the provider ACCEPTED the refund, not that funds have settled.
+    ///
+    /// <paramref name="idempotencyKey"/> must be stable for a given logical refund so that a
+    /// retry of the same business operation is de-duplicated by the provider instead of
+    /// issuing a second refund. Callers should derive it from the order ID.
+    ///
+    /// A failure must be reported through <see cref="RefundResult.Success"/>; the caller is
+    /// responsible for refusing to cancel the order in that case.
     /// </summary>
     Task<RefundResult> RefundAsync(
         string providerPaymentId,
         decimal amount,
         string notes,
+        string? idempotencyKey = null,
         CancellationToken cancellationToken = default);
 }
 

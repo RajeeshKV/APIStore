@@ -19,11 +19,26 @@ internal sealed class UpdateEmailSettingsHandler(
             return Result.Failure<AdminBusinessSettingsResponse>(Error.NotFound(
                 "BUSINESS_SETTINGS_NOT_FOUND", "Business settings have not been initialised."));
 
-        var email = EmailSettings.Create(command.Mode, command.SenderName, command.SenderEmail);
+        EmailSettings email;
+        try
+        {
+            email = EmailSettings.Create(command.Mode, command.SenderName, command.SenderEmail);
+        }
+        catch (ArgumentException ex)
+        {
+            // The validator has already rejected these cases, so reaching here means the two
+            // layers disagree. Report it as a validation failure rather than letting the
+            // exception surface as a 500.
+            return Result.Failure<AdminBusinessSettingsResponse>(
+                Error.Validation("EMAIL_SETTINGS_INVALID", ex.Message));
+        }
+
         settings.UpdateEmail(email);
         await db.SaveChangesAsync(cancellationToken);
         settingsService.Invalidate();
-        logger.LogInformation("BusinessSettings email configuration updated. Mode: {Mode}", command.Mode);
+        logger.LogInformation(
+            "BusinessSettings email configuration updated. Mode: {Mode} SenderName: {SenderName}",
+            email.Mode, email.SenderName);
 
         var updated = await settingsService.GetAsync(cancellationToken);
         return Result.Success(AdminSettingsMapper.Map(updated!));

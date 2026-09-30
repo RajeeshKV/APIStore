@@ -116,10 +116,22 @@ public sealed class Order : AuditableEntity
         [OrderStatus.Shipped]           = [OrderStatus.Delivered],
         [OrderStatus.Delivered]         = [OrderStatus.RefundPending],
         [OrderStatus.RefundPending]     = [OrderStatus.Refunded],
-        [OrderStatus.Cancelled]         = [],
+        // A cancelled order can still settle its refund later. Cancellation only happens
+        // after a successful refund initiation, but Razorpay refunds settle asynchronously
+        // (refund.processed / refund.failed webhooks), so the order must be able to reach
+        // Refunded from Cancelled once the provider confirms settlement.
+        [OrderStatus.Cancelled]         = [OrderStatus.Refunded],
         [OrderStatus.Failed]            = [],
         [OrderStatus.Refunded]          = []
     };
+
+    /// <summary>
+    /// Whether <see cref="Cancel"/> is currently a legal transition. Callers that perform an
+    /// irreversible side effect (e.g. a payment refund) before cancelling must check this
+    /// first, so a failed transition cannot leave money moved with the order unchanged.
+    /// </summary>
+    public bool CanCancel =>
+        AllowedTransitions.TryGetValue(Status, out var allowed) && allowed.Contains(OrderStatus.Cancelled);
 
     private void Transition(OrderStatus newStatus, string? reason = null)
     {
@@ -157,11 +169,21 @@ public sealed class Order : AuditableEntity
     }
     public void MarkDelivered()            { Transition(OrderStatus.Delivered); DeliveredAt = DateTime.UtcNow; }
     public void MarkFailed()               => Transition(OrderStatus.Failed);
+
+    /// <summary>
+    /// Cancels the order.
+    ///
+    /// IMPORTANT: for a Razorpay-paid order this must only be called once the refund has
+    /// been accepted by the provider. A cancelled order represents "this order will not be
+    /// fulfilled and any captured payment is being returned", and the refund record on the
+    /// payment is the proof. Callers must not cancel first and refund afterwards.
+    /// </summary>
     public void Cancel(string? reason = null)
     {
         Transition(OrderStatus.Cancelled, reason);
         CancelledAt = DateTime.UtcNow;
     }
+
     public void MarkRefundPending()        => Transition(OrderStatus.RefundPending);
     public void MarkRefunded()             => Transition(OrderStatus.Refunded);
 

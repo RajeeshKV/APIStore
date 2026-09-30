@@ -9,6 +9,12 @@ internal sealed class CartConfiguration : IEntityTypeConfiguration<KromicCommerc
         builder.ToTable("carts");
         builder.HasKey(c => c.Id);
         builder.Property(c => c.AnonymousId).HasMaxLength(128);
+
+        // Stores the code only, never a discount amount. The discount is recomputed from the
+        // current cart and the current promotion rules on every pricing pass, so a code that
+        // later expires or becomes ineligible simply stops discounting.
+        builder.Property(c => c.CouponCode).HasMaxLength(50);
+
         builder.Property(c => c.ExpiresAt).IsRequired();
         builder.Property(c => c.CreatedAtUtc).IsRequired();
         builder.Property(c => c.UpdatedAtUtc).IsRequired();

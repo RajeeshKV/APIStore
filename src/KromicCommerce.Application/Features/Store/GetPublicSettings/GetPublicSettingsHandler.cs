@@ -70,7 +70,11 @@ internal sealed class GetPublicSettingsHandler(
                 MobileOtpEnabled: s.Auth.MobileOtpEnabled),
             Payment: new PublicPaymentSettingsDto(
                 RazorpayEnabled: s.Payment.Enabled && s.Payment.IsConfigured,
-                CodEnabled: s.Delivery.CodEnabled,
+                // COD availability is a shipping concern and is served from Delivery.CodEnabled.
+                // This mirror field is retained for backward compatibility with existing
+                // clients that read it from the payment block; both values are the same
+                // single source of truth. New clients should read Delivery.CodEnabled.
+                CodEnabled: s.Delivery.IsCodAvailable,
                 // Only expose the Key ID when Razorpay is active — it is a public identifier
                 // safe for the browser Razorpay widget. The encrypted Key Secret is NEVER included here.
                 RazorpayKeyId: (s.Payment.Enabled && s.Payment.IsConfigured) ? s.Payment.RazorpayKeyId : null));

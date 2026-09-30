@@ -17,6 +17,14 @@ internal sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         builder.Property(p => p.CurrencyCode).IsRequired().HasMaxLength(3);
         builder.Property(p => p.Status).IsRequired().HasConversion<string>().HasMaxLength(50);
         builder.Property(p => p.FailureReason).HasMaxLength(500);
+
+        // Refund trace. Persisting the provider's refund id is what makes a repeated
+        // cancellation idempotent: the handler reads this state and skips the gateway call
+        // instead of issuing a second refund against the same captured payment.
+        builder.Property(p => p.ProviderRefundId).HasMaxLength(100);
+        builder.Property(p => p.RefundedAmount).IsRequired().HasColumnType("numeric(12,2)");
+        builder.Property(p => p.RefundedAtUtc);
+
         builder.Property(p => p.CreatedAtUtc).IsRequired();
         builder.Property(p => p.UpdatedAtUtc).IsRequired();
 
@@ -27,6 +35,9 @@ internal sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         builder.HasIndex(p => p.ProviderOrderId)
             .HasFilter("\"ProviderOrderId\" IS NOT NULL")
             .HasDatabaseName("ix_payments_provider_order");
+        builder.HasIndex(p => p.ProviderRefundId)
+            .HasFilter("\"ProviderRefundId\" IS NOT NULL")
+            .HasDatabaseName("ix_payments_provider_refund");
 
         builder.HasOne(p => p.Order)
             .WithMany()

@@ -5,9 +5,12 @@ using KromicCommerce.Domain.Store;
 namespace KromicCommerce.Application.Services;
 
 /// <summary>
-/// Pure shipping fee and delivery estimate calculation.
+/// Pure shipping fee, COD fee and delivery estimate calculation.
 /// No I/O — registered as singleton.
-/// All monetary arithmetic uses decimal.
+///
+/// COD is a shipping concern: the fee is read from
+/// <see cref="DeliverySettings.EffectiveCodFee"/>, which is zero whenever COD is disabled.
+/// Disabling COD is therefore sufficient to remove the fee from every calculation.
 /// </summary>
 public sealed class ShippingCalculationService(
     IDeliveryEstimateService deliveryEstimateService)
@@ -21,7 +24,10 @@ public sealed class ShippingCalculationService(
             && subtotal >= delivery.FreeShippingThreshold.Value;
 
         var shippingAmount = isFreeShipping ? 0m : delivery.FlatFeeAmount;
-        var codFee = isCod ? delivery.CodExtraFee : 0m;
+
+        // EffectiveCodFee is 0 unless COD is enabled, so a disabled COD method can never
+        // contribute a surcharge even if a caller passes isCod = true.
+        var codFee = isCod ? delivery.EffectiveCodFee : 0m;
 
         var estimate = deliveryEstimateService.Calculate(
             delivery.ProcessingDays,

@@ -28,7 +28,9 @@ public sealed class CreateProductHandlerTests
         result.IsSuccess.Should().BeTrue();
         result.Value.Status.Should().Be(ProductStatus.Draft);
         result.Value.Price.Should().Be(99.99m);
-        _cache.Verify(c => c.InvalidateProducts(), Times.Once);
+        // The product graph is invalidated, not just the product key: a new product also
+        // changes the brand and category product counts embedded in the cached storefront lists.
+        _cache.Verify(c => c.InvalidateProductGraph(), Times.Once);
     }
 
     [Fact]

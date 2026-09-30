@@ -5,7 +5,7 @@ namespace KromicCommerce.Application.Features.Storefront.Products.GetFeaturedPro
 
 /// <summary>
 /// Returns active featured products for homepage/banner sections.
-/// Cached under "storefront:products:featured" with DefaultExpiryMinutes TTL.
+/// Cached under "storefront:products:featured:{limit}" with DefaultExpiryMinutes TTL.
 /// </summary>
 internal sealed class GetFeaturedProductsHandler(
     IApplicationDbContext db,
@@ -15,7 +15,6 @@ internal sealed class GetFeaturedProductsHandler(
     : IQueryHandler<GetFeaturedProductsQuery, IReadOnlyList<StorefrontProductSummaryResponse>>
 {
     private const int MaxLimit = 50;
-    private const string CacheKey = CatalogCacheKeys.StorefrontFeatured;
 
     public async Task<Result<IReadOnlyList<StorefrontProductSummaryResponse>>> Handle(
         GetFeaturedProductsQuery query,
@@ -23,7 +22,12 @@ internal sealed class GetFeaturedProductsHandler(
     {
         var limit = Math.Clamp(query.Limit, 1, MaxLimit);
 
-        if (cache.TryGetValue(CacheKey, out IReadOnlyList<StorefrontProductSummaryResponse>? cached)
+        // The limit is baked into the cached result, so it must be part of the key —
+        // otherwise a limit=4 request populates the entry and a later limit=50 request is
+        // served four products.
+        var cacheKey = CatalogCacheKeys.StorefrontFeaturedProducts(limit);
+
+        if (cache.TryGetValue(cacheKey, out IReadOnlyList<StorefrontProductSummaryResponse>? cached)
             && cached is not null)
             return Result.Success(cached);
 
@@ -80,7 +84,7 @@ internal sealed class GetFeaturedProductsHandler(
         }).ToList();
 
         IReadOnlyList<StorefrontProductSummaryResponse> result = items;
-        cache.Set(CacheKey, result, new MemoryCacheEntryOptions
+        cache.Set(cacheKey, result, new MemoryCacheEntryOptions
         {
             AbsoluteExpirationRelativeToNow =
                 TimeSpan.FromMinutes(cacheOpts.Value.DefaultExpiryMinutes),

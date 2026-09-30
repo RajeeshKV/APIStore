@@ -32,7 +32,8 @@ internal sealed class GetCartHandler(
         if (cart is null || !cart.Items.Any())
         {
             var emptyId = cart?.Id ?? Guid.Empty;
-            return Result.Success(new CartResponse(emptyId, [], 0m, currency, 0, true));
+            return Result.Success(new CartResponse(
+                emptyId, [], 0m, currency, 0, true, cart?.CouponCode));
         }
 
         // Load products and variants for pricing — server is authoritative
@@ -94,6 +95,6 @@ internal sealed class GetCartHandler(
         }
 
         return Result.Success(new CartResponse(
-            cart.Id, items, subtotal, currency, items.Count, items.Count == 0));
+            cart.Id, items, subtotal, currency, items.Count, items.Count == 0, cart.CouponCode));
     }
 }

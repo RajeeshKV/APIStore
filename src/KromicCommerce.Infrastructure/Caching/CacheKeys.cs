@@ -9,7 +9,7 @@ namespace KromicCommerce.Infrastructure.Caching;
 /// </summary>
 public static class CacheKeys
 {
-    public const string BusinessSettings = "store:business_settings";
+    public const string BusinessSettings = CatalogCacheKeys.BusinessSettings;
 
     // -----------------------------------------------------------------------
     // Admin catalog (delegate to Application constants — single source)
@@ -25,13 +25,19 @@ public static class CacheKeys
     // -----------------------------------------------------------------------
     public const string StorefrontCategories = CatalogCacheKeys.StorefrontCategories;
     public const string StorefrontBrands     = CatalogCacheKeys.StorefrontBrands;
-    public const string StorefrontFeatured   = CatalogCacheKeys.StorefrontFeatured;
+
+    /// <summary>
+    /// Base prefix for featured-product entries. Entries are keyed per limit; invalidation
+    /// removes each configured limit in turn because IMemoryCache cannot prefix-delete.
+    /// </summary>
+    public const string StorefrontFeaturedPrefix = CatalogCacheKeys.StorefrontFeaturedPrefix;
+
+    public static string StorefrontFeatured(int limit) =>
+        CatalogCacheKeys.StorefrontFeaturedProducts(limit);
 
     public static string StorefrontProduct(string slug) =>
         CatalogCacheKeys.StorefrontProduct(slug);
 
-    // -----------------------------------------------------------------------
     // Store policies
-    // -----------------------------------------------------------------------
-    public const string PublicPolicies = "store:policies:public";
+    public const string PublicPolicies = CatalogCacheKeys.PublicPolicies;
 }

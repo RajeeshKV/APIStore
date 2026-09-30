@@ -28,9 +28,17 @@ internal sealed class GetVariantsHandler(IApplicationDbContext db)
             .Where(i => i.VariantId.HasValue && variantIds.Contains(i.VariantId.Value))
             .ToDictionaryAsync(i => i.VariantId!.Value, i => i.Available, ct);
 
+        // Resolve attribute values in one query for the whole product rather than per variant.
+        var attributeMap = await VariantAttributeHelper.ResolveAsync(
+            db, variants.SelectMany(v => v.ParsedAttributeValueIds).Distinct().ToList(), ct);
+
         var responses = variants.Select(v => new VariantResponse(
             v.Id, v.Sku, v.PriceOverride, v.SortOrder, v.IsActive, v.AttributeValueIds,
-            inventoryMap.TryGetValue(v.Id, out var stock) ? stock : null))
+            inventoryMap.TryGetValue(v.Id, out var stock) ? stock : null,
+            Attributes: v.ParsedAttributeValueIds
+                .Where(attributeMap.ContainsKey)
+                .Select(id => attributeMap[id])
+                .ToList()))
             .ToList();
 
         return Result.Success<IReadOnlyList<VariantResponse>>(responses);
@@ -56,8 +64,10 @@ internal sealed class GetVariantByIdHandler(IApplicationDbContext db)
             .AsNoTracking()
             .FirstOrDefaultAsync(i => i.VariantId == variant.Id, ct);
 
+        var attributes = await VariantAttributeResolution.ResolveAsync(db, variant, ct);
+
         return Result.Success(new VariantResponse(
             variant.Id, variant.Sku, variant.PriceOverride, variant.SortOrder,
-            variant.IsActive, variant.AttributeValueIds, inventoryItem?.Available));
+            variant.IsActive, variant.AttributeValueIds, inventoryItem?.Available, attributes));
     }
 }

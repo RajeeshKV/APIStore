@@ -147,6 +147,14 @@ public sealed class BusinessSettings : AuditableEntity
     public void UpdateDelivery(DeliverySettings delivery) =>
         Delivery = delivery ?? throw new ArgumentNullException(nameof(delivery));
 
+    /// <summary>
+    /// Toggles cash-on-delivery availability without touching any other shipping setting.
+    /// COD lives entirely in <see cref="Delivery"/>, so this is the only COD mutation the
+    /// integrations screen needs — it must never construct a partially-populated
+    /// DeliverySettings and overwrite the fee or delivery-day estimates.
+    /// </summary>
+    public void SetCodEnabled(bool enabled) => Delivery = Delivery.WithCodEnabled(enabled);
+
     public void UpdateAuth(StoreAuthSettings auth) =>
         Auth = auth ?? throw new ArgumentNullException(nameof(auth));
 

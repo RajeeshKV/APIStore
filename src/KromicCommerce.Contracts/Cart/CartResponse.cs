@@ -8,4 +8,11 @@ public sealed record CartResponse(
     decimal Subtotal,
     string Currency,
     int TotalItems,
-    bool IsEmpty);
+    bool IsEmpty,
+
+    /// <summary>
+    /// Coupon code currently stored on the cart, normalised (trimmed, upper-cased), or null.
+    /// The discount is NOT included in <see cref="Subtotal"/> and is never returned from the
+    /// cart endpoint — call the checkout summary endpoint for the full payable breakdown.
+    /// </summary>
+    string? CouponCode = null);

@@ -20,6 +20,11 @@ internal sealed class UpdateProductHandler(
             && await db.Products.AnyAsync(p => p.Sku == command.Sku && p.Id != command.Id, cancellationToken))
             return Result.Failure<ProductResponse>(Error.Conflict("PRODUCT_SKU_TAKEN", $"SKU '{command.Sku}' is already in use."));
 
+        // Captured before the update: a slug change leaves the previous storefront entry
+        // orphaned, and the counts in the brand/category lists move when the product is
+        // reassigned to a different brand or category.
+        var previousSlug = product.Slug;
+
         product.UpdateDetails(command.Name, command.Slug, command.Sku,
             command.Description, command.ShortDescription,
             command.CategoryId, command.BrandId, command.IsFeatured, command.IsTaxable);
@@ -27,9 +32,11 @@ internal sealed class UpdateProductHandler(
         product.UpdateSeo(command.MetaTitle, command.MetaDescription, command.MetaKeywords);
 
         await db.SaveChangesAsync(cancellationToken);
-        cache.InvalidateProduct(command.Id);
-        cache.InvalidateStorefrontProduct(product.Slug);
-        cache.InvalidateStorefrontFeatured();
+
+        if (!string.Equals(previousSlug, product.Slug, StringComparison.Ordinal))
+            cache.InvalidateStorefrontProduct(previousSlug);
+
+        cache.InvalidateProductGraph(command.Id, product.Slug);
 
         // Reload with full includes for the response
         var full = await db.Products.AsNoTracking()

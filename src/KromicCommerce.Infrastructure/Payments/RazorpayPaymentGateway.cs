@@ -43,7 +43,7 @@ internal sealed class RazorpayPaymentGateway(
             var client = new RazorpayClient(credentials.KeyId, credentials.KeySecret);
 
             // Razorpay amounts are in smallest currency unit (paise for INR)
-            var amountInPaise = (int)Math.Round(amount * 100);
+            var amountInPaise = ToPaise(amount);
 
             var orderOptions = new Dictionary<string, object>
             {
@@ -180,6 +180,7 @@ internal sealed class RazorpayPaymentGateway(
         string providerPaymentId,
         decimal amount,
         string notes,
+        string? idempotencyKey = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -189,17 +190,28 @@ internal sealed class RazorpayPaymentGateway(
                 return new RefundResult(false, null, "Razorpay is not configured or enabled.");
 
             var client = new RazorpayClient(credentials.KeyId, credentials.KeySecret);
-            var amountInPaise = (int)Math.Round(amount * 100);
+            var amountInPaise = ToPaise(amount);
+
+            var refundNotes = new Dictionary<string, string>
+            {
+                ["reason"] = notes
+            };
 
             var refundOptions = new Dictionary<string, object>
             {
                 ["amount"] = amountInPaise,
                 ["speed"] = "normal",
-                ["notes"] = new Dictionary<string, string>
-                {
-                    ["reason"] = notes
-                }
+                ["notes"] = refundNotes
             };
+
+            // Razorpay de-duplicates refunds on (payment, receipt). A stable receipt derived
+            // from the order makes a retried cancellation idempotent at the provider instead
+            // of issuing a second refund against the same captured payment.
+            if (!string.IsNullOrWhiteSpace(idempotencyKey))
+            {
+                refundNotes["idempotency_key"] = idempotencyKey;
+                refundOptions["receipt"] = idempotencyKey;
+            }
 
             var refund = await Task.Run(
                 () =>
@@ -209,7 +221,20 @@ internal sealed class RazorpayPaymentGateway(
                 },
                 cancellationToken);
 
-            var refundId = (string)(refund["id"]?.ToString() ?? string.Empty);
+            var refundId = (string?)(refund["id"]?.ToString());
+
+            if (string.IsNullOrWhiteSpace(refundId))
+            {
+                // The provider accepted the call but did not return a refund identifier.
+                // Treat it as a failure: the caller must not cancel the order on an
+                // untraceable refund, because there would be no reconciliation handle.
+                logger.LogError(
+                    "Razorpay refund for PaymentId {PaymentId} returned no refund id",
+                    providerPaymentId);
+                return new RefundResult(false, null,
+                    "Razorpay accepted the refund but returned no refund id.");
+            }
+
             logger.LogInformation(
                 "Razorpay refund initiated. PaymentId: {PaymentId} RefundId: {RefundId} Amount: {Amount}",
                 providerPaymentId, refundId, amount);
@@ -222,6 +247,24 @@ internal sealed class RazorpayPaymentGateway(
                 "Razorpay refund failed for PaymentId: {PaymentId}", providerPaymentId);
             return new RefundResult(false, null, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Converts a decimal amount in the store's currency to Razorpay's smallest currency
+    /// unit (paise for INR). Rejects amounts that cannot be represented exactly rather than
+    /// silently truncating them.
+    /// </summary>
+    private static int ToPaise(decimal amount)
+    {
+        if (amount < 0)
+            throw new ArgumentOutOfRangeException(nameof(amount), amount, "Amount must be >= 0.");
+
+        var paise = Math.Round(amount * 100m, MidpointRounding.AwayFromZero);
+        if (paise > int.MaxValue)
+            throw new ArgumentOutOfRangeException(
+                nameof(amount), amount, "Amount exceeds the maximum representable value.");
+
+        return (int)paise;
     }
 
     private async Task<RazorpayCredentials?> GetCredentialsAsync(CancellationToken cancellationToken)

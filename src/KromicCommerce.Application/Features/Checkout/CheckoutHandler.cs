@@ -8,23 +8,25 @@ namespace KromicCommerce.Application.Features.Checkout;
 /// Checkout handler — the core purchase transaction.
 ///
 /// Server-side guarantees (enforced here, never trusted from client):
-///   1. All prices from Product.GetEffectivePrice() — never from client.
-///   2. Shipping fee from IShippingCalculationService — reads DeliverySettings.
+///   1. All prices come from <see cref="ICheckoutSummaryService"/> — the same engine that
+///      backs GET /checkout/summary — so the amount shown at checkout and the amount charged
+///      cannot diverge. The request carries no monetary value at all.
+///   2. Shipping fee and COD fee from IShippingCalculationService — reads DeliverySettings.
+///      COD availability and its fee both come from the shipping configuration.
 ///   3. Tax from ITaxCalculationService — reads BusinessSettings.Tax.
-///   4. Promotion discount from IPromotionService — re-validated inside transaction.
+///   4. Promotion discount from IPromotionService — re-validated at order creation time.
 ///   5. Inventory reserved with xmin concurrency token (PostgreSQL row-level).
-///   6. Promotion usage recorded inside the same DB transaction (COD) or after
-///      payment confirmation (Razorpay) — not before.
-///   7. Totals:  subtotal - discount + tax (exclusive) + shipping + codFee = grandTotal
-///      Tax-inclusive mode: tax is extracted from subtotal, not added on top.
-///   8. Order financial snapshot is immutable after creation.
+///   6. Promotion usage recorded at placement (COD) or after payment confirmation (Razorpay).
+///   7. Order financial snapshot is immutable after creation.
+///
+/// Pricing is not reimplemented here. The summary is recalculated inside this handler rather
+/// than reused from a previous request, so a cart, coupon or shipping configuration that
+/// changed since the customer saw the summary cannot be charged a stale amount.
 /// </summary>
 internal sealed class CheckoutHandler(
     IApplicationDbContext db,
     IBusinessSettingsService businessSettings,
-    IShippingCalculationService shippingService,
-    ITaxCalculationService taxService,
-    IPromotionService promotionService,
+    ICheckoutSummaryService summaryService,
     IPaymentGateway paymentGateway,
     ILogger<CheckoutHandler> logger)
     : ICommandHandler<CheckoutCommand, CheckoutResponse>
@@ -54,10 +56,9 @@ internal sealed class CheckoutHandler(
         }
 
         // -----------------------------------------------------------------------
-        // Saved address
+        // Saved address — validated before anything is priced, and scoped to the
+        // customer so an ID from another account can never be used.
         // -----------------------------------------------------------------------
-        // Scope the lookup to the customer so an ID from another account cannot
-        // be used to expose or ship to someone else's address.
         var customerAddress = await db.CustomerAddresses
             .AsNoTracking()
             .FirstOrDefaultAsync(
@@ -73,7 +74,51 @@ internal sealed class CheckoutHandler(
                 Error.Validation("ADDRESS_PHONE_REQUIRED", "The selected address must include a phone number."));
 
         // -----------------------------------------------------------------------
-        // Cart
+        // Authoritative pricing — one engine, recalculated here.
+        // -----------------------------------------------------------------------
+        var summaryResult = await summaryService.CalculateAsync(
+            new CheckoutSummaryRequest(
+                command.CustomerId,
+                command.PaymentMethod,
+                command.CouponCode),
+            cancellationToken);
+
+        if (!summaryResult.IsSuccess)
+            return Result.Failure<CheckoutResponse>(summaryResult.Error);
+
+        var summary = summaryResult.Value;
+
+        // A coupon the customer expects to be honoured must fail the checkout rather than
+        // silently charging full price. An invalid cart or an unavailable payment method
+        // fails with the same error codes the endpoint has always returned.
+        if (!string.IsNullOrWhiteSpace(summary.CouponErrorCode) &&
+            CouponWasRequested(command.CouponCode, summary.AppliedCouponCode))
+        {
+            return Result.Failure<CheckoutResponse>(Error.Validation(
+                summary.CouponErrorCode,
+                summary.CouponErrorMessage ?? "Coupon is not valid."));
+        }
+
+        var blockingError = MapBlockingReason(summary);
+        if (blockingError is not null)
+            return Result.Failure<CheckoutResponse>(blockingError);
+
+        var settings = await businessSettings.GetAsync(cancellationToken)
+            ?? throw new InvalidOperationException("Business settings not found.");
+
+        var currency = settings.CurrencyCode;
+        var subtotal = summary.Subtotal;
+        var discountAmount = summary.DiscountAmount;
+        var taxAmount = summary.TaxAmount;
+        var shippingAmount = summary.ShippingAmount;
+        var codFee = summary.CodFee;
+        var grandTotal = summary.GrandTotal;
+        var paymentMethod = command.PaymentMethod;
+        var isCod = paymentMethod == PaymentMethod.CashOnDelivery;
+        var appliedCoupon = summary.AppliedCouponCode;
+
+        // -----------------------------------------------------------------------
+        // Inventory reservation
         // -----------------------------------------------------------------------
         var cart = await db.Carts
             .Include(c => c.Items)
@@ -81,152 +126,23 @@ internal sealed class CheckoutHandler(
                 c => c.CustomerId == command.CustomerId && c.ExpiresAt > DateTime.UtcNow,
                 cancellationToken);
 
-        if (cart is null || !cart.Items.Any())
+        if (cart is null)
             return Result.Failure<CheckoutResponse>(
                 Error.Validation("CART_EMPTY", "Your cart is empty."));
 
-        // -----------------------------------------------------------------------
-        // Business settings — currency, delivery, tax
-        // -----------------------------------------------------------------------
-        var settings = await businessSettings.GetAsync(cancellationToken)
-            ?? throw new InvalidOperationException("Business settings not found.");
-
-        var delivery = settings.Delivery;
-        var taxSettings = settings.Tax;
-        var currency = settings.CurrencyCode;
-
-        // -----------------------------------------------------------------------
-        // Payment method
-        // -----------------------------------------------------------------------
-        var paymentMethod = command.PaymentMethod;
-
-        if (paymentMethod == PaymentMethod.CashOnDelivery && !delivery.CodEnabled)
-            return Result.Failure<CheckoutResponse>(
-                Error.Validation("COD_NOT_AVAILABLE", "Cash on delivery is not available for this store."));
-
-        var isCod = paymentMethod == PaymentMethod.CashOnDelivery;
-
-        if (paymentMethod == PaymentMethod.Razorpay &&
-            !await paymentGateway.IsConfiguredAsync(cancellationToken))
-        {
-            return Result.Failure<CheckoutResponse>(
-                Error.ServiceUnavailable("RAZORPAY_NOT_CONFIGURED",
-                    "Online payments are temporarily unavailable. Please choose another payment method or try again later."));
-        }
-
-        // -----------------------------------------------------------------------
-        // Load products + variants + inventory
-        // -----------------------------------------------------------------------
-        var productIds = cart.Items.Select(i => i.ProductId).Distinct().ToList();
-        var products = await db.Products
-            .Where(p => productIds.Contains(p.Id) && p.Status == ProductStatus.Active)
-            .Include(p => p.Images)
-            .ToListAsync(cancellationToken);
-
-        var variantIds = cart.Items.Where(i => i.VariantId.HasValue)
-            .Select(i => i.VariantId!.Value).ToList();
-        var variants = variantIds.Any()
-            ? await db.ProductVariants.Where(v => variantIds.Contains(v.Id)).ToListAsync(cancellationToken)
-            : new List<ProductVariant>();
-
+        var productIds = summary.Items.Select(i => i.ProductId).Distinct().ToList();
         var inventoryItems = await db.InventoryItems
             .Where(inv => productIds.Contains(inv.ProductId))
             .ToListAsync(cancellationToken);
 
-        // -----------------------------------------------------------------------
-        // Server-side pricing
-        // -----------------------------------------------------------------------
-        decimal subtotal = 0m;
-        var orderItems = new List<OrderItem>();
-        var cartItemContexts = new List<CartItemContext>();
-
-        foreach (var cartItem in cart.Items)
-        {
-            var product = products.FirstOrDefault(p => p.Id == cartItem.ProductId);
-            if (product is null)
-                return Result.Failure<CheckoutResponse>(
-                    Error.NotFound("PRODUCT_UNAVAILABLE",
-                        $"Product {cartItem.ProductId} is no longer available."));
-
-            var variant = cartItem.VariantId.HasValue
-                ? variants.FirstOrDefault(v => v.Id == cartItem.VariantId.Value)
-                : null;
-
-            var unitPrice = product.GetEffectivePrice(variant);
-            var lineTotal = unitPrice * cartItem.Quantity;
-            subtotal += lineTotal;
-
-            var variantDesc = variant is not null ? $"SKU: {variant.Sku ?? "N/A"}" : null;
-
-            orderItems.Add(OrderItem.Create(
-                Guid.Empty, product.Id, variant?.Id,
-                product.Name, variantDesc, variant?.Sku ?? product.Sku,
-                unitPrice, cartItem.Quantity));
-
-            cartItemContexts.Add(new CartItemContext(product.Id, product.CategoryId, lineTotal));
-        }
-
-        // -----------------------------------------------------------------------
-        // Promotion / coupon (re-validated inside transaction)
-        // -----------------------------------------------------------------------
-        PromotionCalculationResult promotionResult = PromotionCalculationResult.NoPromotion();
-
-        if (!string.IsNullOrWhiteSpace(command.CouponCode))
-        {
-            var isFirstOrder = !await db.Orders
-                .AnyAsync(o => o.CustomerId == command.CustomerId, cancellationToken);
-
-            promotionResult = await promotionService.ValidateAndCalculateAsync(
-                command.CouponCode, command.CustomerId, subtotal,
-                cartItemContexts, isFirstOrder, cancellationToken);
-
-            if (!promotionResult.IsValid)
-                return Result.Failure<CheckoutResponse>(
-                    Error.Validation(
-                        promotionResult.ErrorCode ?? "COUPON_INVALID",
-                        promotionResult.ErrorMessage ?? "Coupon is not valid."));
-        }
-
-        var discountAmount = promotionResult.DiscountAmount;
-
-        // -----------------------------------------------------------------------
-        // Shipping (via dedicated service — not inline)
-        // -----------------------------------------------------------------------
-        var shipping = shippingService.Calculate(subtotal, isCod, delivery);
-        var shippingAmount = shipping.ShippingAmount;
-        var codFee = shipping.CodFee;
-
-        // -----------------------------------------------------------------------
-        // Tax
-        // Taxable base = subtotal - discount (apply discount before tax for exclusive pricing)
-        // For inclusive pricing, tax is extracted from the price already, so TaxAmount is informational.
-        // -----------------------------------------------------------------------
-        var taxableBase = Math.Max(0m, subtotal - discountAmount);
-        var tax = taxService.Calculate(taxableBase, taxSettings);
-        var taxAmount = tax.TaxAmount;
-
-        // -----------------------------------------------------------------------
-        // Grand total
-        // For exclusive tax:  grandTotal = subtotal - discount + tax + shipping + codFee
-        // For inclusive tax:  grandTotal = subtotal - discount + shipping + codFee (tax already in price)
-        // -----------------------------------------------------------------------
-        decimal grandTotal = taxSettings.IsPriceInclusive
-            ? subtotal - discountAmount + shippingAmount + codFee
-            : subtotal - discountAmount + taxAmount + shippingAmount + codFee;
-
-        grandTotal = Math.Max(0m, grandTotal);
-
-        // -----------------------------------------------------------------------
-        // Inventory reservation
-        // -----------------------------------------------------------------------
-        foreach (var cartItem in cart.Items)
+        foreach (var line in summary.Items)
         {
             var inv = inventoryItems.FirstOrDefault(i =>
-                i.ProductId == cartItem.ProductId && i.VariantId == cartItem.VariantId);
+                i.ProductId == line.ProductId && i.VariantId == line.VariantId);
 
             if (inv is not null)
             {
-                try { inv.Reserve(cartItem.Quantity); }
+                try { inv.Reserve(line.Quantity); }
                 catch (InvalidOperationException ex)
                 {
                     return Result.Failure<CheckoutResponse>(
@@ -245,7 +161,6 @@ internal sealed class CheckoutHandler(
             customerAddress.PostalCode, customerAddress.CountryCode);
 
         var orderNumber = GenerateOrderNumber();
-        var appliedCoupon = promotionResult.IsValid ? promotionResult.CouponCode : null;
 
         var order = Order.Create(
             command.CustomerId, orderNumber, currency,
@@ -258,12 +173,12 @@ internal sealed class CheckoutHandler(
         db.Orders.Add(order);
         await db.SaveChangesAsync(cancellationToken);
 
-        foreach (var item in orderItems)
+        foreach (var line in summary.Items)
         {
             var oi = OrderItem.Create(
-                order.Id, item.ProductId, item.VariantId,
-                item.ProductName, item.VariantDescription, item.Sku,
-                item.UnitPrice, item.Quantity);
+                order.Id, line.ProductId, line.VariantId,
+                line.ProductName, line.VariantDescription, line.Sku,
+                line.UnitPrice, line.Quantity);
             order.AddItem(oi);
             db.OrderItems.Add(oi);
         }
@@ -296,12 +211,12 @@ internal sealed class CheckoutHandler(
 
         // COD: order stays at OrderPlaced — admin must confirm after stock verification.
         // Payment is collected on delivery; do NOT mark paid or confirm here.
-        if (isCod && promotionResult.IsValid && promotionResult.PromotionId.HasValue)
+        if (isCod && summary.AppliedPromotionId.HasValue)
         {
             // Record promotion usage for COD at placement time (not at confirmation)
             // — coupon is consumed when order is placed, not when admin confirms.
             await RecordPromotionUsageAsync(
-                promotionResult.PromotionId.Value, command.CustomerId, order.Id, cancellationToken);
+                summary.AppliedPromotionId.Value, command.CustomerId, order.Id, cancellationToken);
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -322,7 +237,7 @@ internal sealed class CheckoutHandler(
                     order.Id, pgResult.ErrorMessage);
                 payment.MarkFailed(pgResult.ErrorMessage);
                 order.MarkFailed();
-                ReleaseReservations(cart.Items, inventoryItems);
+                ReleaseReservations(summary, inventoryItems);
                 await db.SaveChangesAsync(cancellationToken);
                 return Result.Failure<CheckoutResponse>(
                     Error.ServiceUnavailable("PAYMENT_INITIALIZATION_FAILED",
@@ -356,6 +271,53 @@ internal sealed class CheckoutHandler(
             null, // RazorpayKeyId — injected by controller
             order.CreatedAtUtc));
     }
+
+    // -----------------------------------------------------------------------
+    // Blocking-reason mapping
+    //
+    // The summary service reports readiness as machine-readable reasons so it stays
+    // reusable. This maps them back onto the error codes this endpoint has always
+    // returned, keeping the public API contract stable.
+    // -----------------------------------------------------------------------
+
+    private static Error? MapBlockingReason(CheckoutSummary summary)
+    {
+        foreach (var reason in summary.BlockingReasons)
+        {
+            if (reason == "CART_EMPTY")
+                return Error.Validation("CART_EMPTY", "Your cart is empty.");
+
+            if (reason == "COD_NOT_AVAILABLE")
+                return Error.Validation("COD_NOT_AVAILABLE",
+                    "Cash on delivery is not available for this store.");
+
+            if (reason == "RAZORPAY_NOT_CONFIGURED")
+                return Error.ServiceUnavailable("RAZORPAY_NOT_CONFIGURED",
+                    "Online payments are temporarily unavailable. Please choose another payment method or try again later.");
+
+            if (reason.StartsWith("PRODUCT_UNAVAILABLE:", StringComparison.Ordinal))
+                return Error.NotFound("PRODUCT_UNAVAILABLE",
+                    $"Product {reason["PRODUCT_UNAVAILABLE:".Length..]} is no longer available.");
+
+            if (reason.StartsWith("VARIANT_UNAVAILABLE:", StringComparison.Ordinal))
+                return Error.NotFound("PRODUCT_UNAVAILABLE",
+                    $"Product {reason["VARIANT_UNAVAILABLE:".Length..]} is no longer available in the selected option.");
+
+            if (reason.StartsWith("INSUFFICIENT_STOCK:", StringComparison.Ordinal))
+                return Error.Conflict("INSUFFICIENT_INVENTORY",
+                    "One or more items no longer have enough stock to complete this order.");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Whether a coupon was expected. An explicit request code or a code already stored on
+    /// the cart both count, so an applied coupon that has since become ineligible fails
+    /// checkout instead of being silently dropped.
+    /// </summary>
+    private static bool CouponWasRequested(string? requested, string? applied) =>
+        !string.IsNullOrWhiteSpace(requested) || !string.IsNullOrWhiteSpace(applied);
 
     // -----------------------------------------------------------------------
     // Promotion usage recording — concurrency-safe via xmin token
@@ -411,14 +373,14 @@ internal sealed class CheckoutHandler(
     }
 
     private static void ReleaseReservations(
-        IEnumerable<CartItem> cartItems,
-        IEnumerable<InventoryItem> inventoryItems)
+        CheckoutSummary summary,
+        IReadOnlyList<Domain.Catalog.InventoryItem> inventoryItems)
     {
-        foreach (var cartItem in cartItems)
+        foreach (var line in summary.Items)
         {
             var inventory = inventoryItems.FirstOrDefault(i =>
-                i.ProductId == cartItem.ProductId && i.VariantId == cartItem.VariantId);
-            inventory?.Release(cartItem.Quantity);
+                i.ProductId == line.ProductId && i.VariantId == line.VariantId);
+            inventory?.Release(line.Quantity);
         }
     }
 

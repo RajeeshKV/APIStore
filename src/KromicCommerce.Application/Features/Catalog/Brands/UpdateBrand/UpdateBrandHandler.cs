@@ -25,8 +25,7 @@ internal sealed class UpdateBrandHandler(
         }
 
         await db.SaveChangesAsync(cancellationToken);
-        cache.InvalidateBrands();
-        cache.InvalidateStorefrontBrands();
+        cache.InvalidateBrandGraph();
 
         return Result.Success(CreateBrandHandler.MapToResponse(brand));
     }
