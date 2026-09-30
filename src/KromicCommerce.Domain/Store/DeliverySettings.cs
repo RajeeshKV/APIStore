@@ -11,7 +11,7 @@ public sealed class DeliverySettings : ValueObject
     {
         FlatFeeAmount = 0m,
         FreeShippingThreshold = null,
-        CodEnabled = true,
+        CodEnabled = false,
         CodExtraFee = 0m,
         ProcessingDays = 1,
         MinDeliveryDays = 3,

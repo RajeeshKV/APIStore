@@ -34,6 +34,17 @@ public sealed class IntegrationConfigController(IMediator mediator) : Controller
         return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
     }
 
+    /// <summary>Enable or disable cash on delivery without changing delivery fees.</summary>
+    [HttpPut("payment/cod")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateCashOnDelivery(
+        [FromBody] UpdateCashOnDeliveryRequest request, CancellationToken ct)
+    {
+        var result = await mediator.Send(new UpdateCashOnDeliveryCommand(request.Enabled), ct);
+        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+    }
+
     [HttpGet("google")]
     [ProducesResponseType(typeof(IntegrationStatusResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetGoogle(CancellationToken ct)

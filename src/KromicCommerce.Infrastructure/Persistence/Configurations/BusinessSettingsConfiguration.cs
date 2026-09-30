@@ -66,7 +66,7 @@ internal sealed class BusinessSettingsConfiguration : IEntityTypeConfiguration<B
             d.Property(x => x.CodEnabled)
                 .HasColumnName("delivery_cod_enabled")
                 .IsRequired()
-                .HasDefaultValue(true);
+                .HasDefaultValue(false);
 
             d.Property(x => x.CodExtraFee)
                 .HasColumnName("delivery_cod_extra_fee")

@@ -26,6 +26,8 @@ public sealed record UpdateRazorpayConfigRequest(
     string KeySecret,
     string WebhookSecret);
 
+public sealed record UpdateCashOnDeliveryRequest(bool Enabled);
+
 public sealed record UpdateGoogleOAuthConfigRequest(
     bool Enabled,
     string ClientId,

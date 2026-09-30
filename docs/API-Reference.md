@@ -420,16 +420,19 @@ Addresses are customer-scoped. A customer cannot access another customer's addre
 
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
-| GET | `/api/v1/admin/integrations/razorpay` | Admin | Razorpay status (masked, no secrets) |
-| PUT | `/api/v1/admin/integrations/razorpay` | Admin | Update Razorpay config |
+| GET | `/api/v1/admin/integrations/payment` | Admin | Razorpay status (masked, no secrets) |
+| PUT | `/api/v1/admin/integrations/payment` | Admin | Update Razorpay config |
+| PUT | `/api/v1/admin/integrations/payment/cod` | Admin | Enable or disable cash on delivery |
 | GET | `/api/v1/admin/integrations/google` | Admin | Google OAuth status |
 | PUT | `/api/v1/admin/integrations/google` | Admin | Update Google OAuth config |
-| GET | `/api/v1/admin/integrations/brevo` | Admin | Brevo email status |
-| PUT | `/api/v1/admin/integrations/brevo` | Admin | Update Brevo config |
+| GET | `/api/v1/admin/integrations/email` | Admin | Brevo email status |
+| PUT | `/api/v1/admin/integrations/email` | Admin | Update Brevo config |
 | GET | `/api/v1/admin/integrations/sms` | Admin | SMS provider status |
 | PUT | `/api/v1/admin/integrations/sms` | Admin | Update SMS config |
 
 **Security:** Secrets are never returned. Responses contain `isConfigured` flag and masked identifiers only.
+
+**Cash on delivery:** New stores have COD disabled by default. Enable it from the payment settings screen with `PUT /api/v1/admin/integrations/payment/cod` and `{ "enabled": true }`. COD surcharge remains part of delivery settings.
 
 **Tracking IDs** (GA4, Meta Pixel) are configured via environment variables (`Tracking__GoogleAnalyticsMeasurementId`, `Tracking__MetaPixelId`) — no admin API endpoint needed. They appear in the public `/store/settings` response.
 

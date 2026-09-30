@@ -14,6 +14,8 @@ namespace KromicCommerce.Application.Features.Admin.Integrations;
 public sealed record UpdateRazorpayConfigCommand(
     bool Enabled, string KeyId, string KeySecret, string WebhookSecret) : ICommand;
 
+public sealed record UpdateCashOnDeliveryCommand(bool Enabled) : ICommand;
+
 public sealed record UpdateGoogleOAuthConfigCommand(
     bool Enabled, string ClientId, string ClientSecret) : ICommand;
 
@@ -58,6 +60,38 @@ internal sealed class UpdateRazorpayConfigHandler(
         await db.SaveChangesAsync(ct);
 
         logger.LogInformation("Razorpay configuration updated. Enabled: {Enabled}", cmd.Enabled);
+        return Result.Success();
+    }
+}
+
+internal sealed class UpdateCashOnDeliveryHandler(
+    IApplicationDbContext db,
+    IBusinessSettingsService settingsService,
+    ILogger<UpdateCashOnDeliveryHandler> logger)
+    : ICommandHandler<UpdateCashOnDeliveryCommand>
+{
+    public async Task<Result> Handle(UpdateCashOnDeliveryCommand cmd, CancellationToken ct)
+    {
+        var settings = await db.BusinessSettings
+            .FindAsync([BusinessSettings.SingletonId], ct);
+
+        if (settings is null)
+            return Result.Failure(Error.NotFound(
+                "BUSINESS_SETTINGS_NOT_FOUND", "Business settings have not been initialised."));
+
+        var delivery = settings.Delivery;
+        settings.UpdateDelivery(DeliverySettings.Create(
+            delivery.FlatFeeAmount,
+            delivery.FreeShippingThreshold,
+            cmd.Enabled,
+            delivery.CodExtraFee,
+            delivery.ProcessingDays,
+            delivery.MinDeliveryDays,
+            delivery.MaxDeliveryDays));
+
+        await db.SaveChangesAsync(ct);
+        settingsService.Invalidate();
+        logger.LogInformation("Cash on delivery updated. Enabled: {Enabled}", cmd.Enabled);
         return Result.Success();
     }
 }

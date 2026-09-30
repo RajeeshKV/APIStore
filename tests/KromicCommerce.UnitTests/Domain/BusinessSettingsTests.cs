@@ -128,6 +128,14 @@ public sealed class BusinessSettingsTests
     // -----------------------------------------------------------------------
 
     [Fact]
+    public void Default_delivery_settings_disable_cash_on_delivery()
+    {
+        var settings = BusinessSettings.CreateDefault("X");
+
+        settings.Delivery.CodEnabled.Should().BeFalse();
+    }
+
+    [Fact]
     public void UpdateDelivery_stores_new_value_object()
     {
         var settings = BusinessSettings.CreateDefault("X");
