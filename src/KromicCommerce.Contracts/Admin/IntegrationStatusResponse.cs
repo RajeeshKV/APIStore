@@ -26,7 +26,9 @@ public sealed record UpdateRazorpayConfigRequest(
     string KeySecret,
     string WebhookSecret);
 
-public sealed record UpdateCashOnDeliveryRequest(bool Enabled);
+// UpdateCashOnDeliveryRequest was removed with the duplicate COD endpoint. COD is configured
+// through UpdateDeliverySettingsRequest (Admin → Shipping), which carries CodEnabled and
+// CodExtraFee together. See UpdateDeliverySettingsRequest in Contracts/Store.
 
 public sealed record UpdateGoogleOAuthConfigRequest(
     bool Enabled,

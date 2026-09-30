@@ -92,7 +92,7 @@ public sealed class CashOnDeliveryConfigurationTests
     }
 
     // -----------------------------------------------------------------------
-    // WithCodEnabled — the integrations COD toggle
+    // WithCodEnabled — the in-model availability toggle, used by UpdateDeliverySettings
     // -----------------------------------------------------------------------
 
     /// <summary>

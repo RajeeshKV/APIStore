@@ -16,6 +16,17 @@ namespace KromicCommerce.Api.Controllers.V1;
 [Authorize(Policy = "AdminOnly")]
 public sealed class IntegrationConfigController(IMediator mediator) : ControllerBase
 {
+    /// <summary>
+    /// Enable or disable cash on delivery without changing delivery fees.
+    ///
+    /// REMOVED — cash-on-delivery is a shipping concern and has a single configuration path:
+    /// PUT /api/v1/admin/settings/delivery. It previously also had a second surface here,
+    /// which presented COD as two independent settings. Both surfaces wrote the same value
+    /// object, so the data was never inconsistent, but having two places to change the same
+    /// switch is what allowed the two admin screens to disagree about availability.
+    ///
+    /// UpdateDeliverySettings is the authoritative mutation for both CodEnabled and CodExtraFee.
+    /// </summary>
     [HttpGet("payment")]
     [ProducesResponseType(typeof(IntegrationStatusResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetPayment(CancellationToken ct)
@@ -31,17 +42,6 @@ public sealed class IntegrationConfigController(IMediator mediator) : Controller
     {
         var result = await mediator.Send(new UpdateRazorpayConfigCommand(
             request.Enabled, request.KeyId, request.KeySecret, request.WebhookSecret), ct);
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
-    }
-
-    /// <summary>Enable or disable cash on delivery without changing delivery fees.</summary>
-    [HttpPut("payment/cod")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> UpdateCashOnDelivery(
-        [FromBody] UpdateCashOnDeliveryRequest request, CancellationToken ct)
-    {
-        var result = await mediator.Send(new UpdateCashOnDeliveryCommand(request.Enabled), ct);
         return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
     }
 

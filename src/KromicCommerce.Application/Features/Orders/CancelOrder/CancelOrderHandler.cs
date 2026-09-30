@@ -16,11 +16,13 @@ namespace KromicCommerce.Application.Features.Orders.CancelOrder;
 /// refund this handler writes nothing at all and returns REFUND_FAILED.
 internal sealed class CancelOrderHandler(
     IApplicationDbContext db,
-    OrderCancellationService cancellation,
-    ILogger<CancelOrderHandler> logger)
+    OrderCancellationService cancellation)
     : ICommandHandler<CancelOrderCommand, OrderResponse>
 {
-    // Statuses from which a customer is allowed to cancel
+    // Customer self-cancellation is deliberately stricter than the admin cancel flow, which
+    // uses Order.CanCancel. Once the store has started processing or packing, the customer must
+    // contact support rather than self-serve. OrderCancellationService re-checks CanCancel
+    // before it moves any money, so this set is a UX restriction, not the safety guarantee.
     private static readonly HashSet<OrderStatus> CancellableStatuses =
         [OrderStatus.PendingPayment, OrderStatus.Confirmed];
 

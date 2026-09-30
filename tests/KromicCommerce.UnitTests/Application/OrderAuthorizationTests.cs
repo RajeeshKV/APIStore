@@ -74,7 +74,7 @@ public sealed class OrderAuthorizationTests
 
         var cancellation = new OrderCancellationService(
             _db.Object, new Mock<IPaymentGateway>().Object, NullLogger<OrderCancellationService>.Instance);
-        var handler = new CancelOrderHandler(_db.Object, cancellation, NullLogger<CancelOrderHandler>.Instance);
+        var handler = new CancelOrderHandler(_db.Object, cancellation);
         var result = await handler.Handle(
             new CancelOrderCommand(orderId, attackerId, null), // attacker
             CancellationToken.None);

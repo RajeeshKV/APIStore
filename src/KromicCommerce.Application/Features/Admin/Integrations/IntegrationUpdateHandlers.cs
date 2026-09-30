@@ -14,7 +14,11 @@ namespace KromicCommerce.Application.Features.Admin.Integrations;
 public sealed record UpdateRazorpayConfigCommand(
     bool Enabled, string KeyId, string KeySecret, string WebhookSecret) : ICommand;
 
-public sealed record UpdateCashOnDeliveryCommand(bool Enabled) : ICommand;
+// Cash-on-delivery is deliberately absent from this file. COD is a shipping concern, so it is
+// mutated only by UpdateDeliverySettingsCommand (Admin → Shipping), which sets both
+// CodEnabled and CodExtraFee together. A dedicated UpdateCashOnDeliveryCommand used to live
+// here and was reachable at PUT /admin/integrations/payment/cod; having two surfaces for one
+// switch is what let the Integrations and Shipping screens disagree about availability.
 
 public sealed record UpdateGoogleOAuthConfigCommand(
     bool Enabled, string ClientId, string ClientSecret) : ICommand;
@@ -110,35 +114,6 @@ internal sealed class UpdateRazorpayConfigHandler(
         await db.SaveChangesAsync(ct);
 
         logger.LogInformation("Razorpay configuration updated. Enabled: {Enabled}", cmd.Enabled);
-        return Result.Success();
-    }
-}
-
-internal sealed class UpdateCashOnDeliveryHandler(
-    IApplicationDbContext db,
-    IBusinessSettingsService settingsService,
-    ILogger<UpdateCashOnDeliveryHandler> logger)
-    : ICommandHandler<UpdateCashOnDeliveryCommand>
-{
-    public async Task<Result> Handle(UpdateCashOnDeliveryCommand cmd, CancellationToken ct)
-    {
-        var settings = await db.BusinessSettings
-            .FindAsync([BusinessSettings.SingletonId], ct);
-
-        if (settings is null)
-            return Result.Failure(Error.NotFound(
-                "BUSINESS_SETTINGS_NOT_FOUND", "Business settings have not been initialised."));
-
-        var delivery = settings.Delivery;
-        settings.SetCodEnabled(cmd.Enabled);
-
-        await db.SaveChangesAsync(ct);
-        // Shipping/COD configuration: invalidate the settings object AND every downstream
-        // entry that embeds shipping-derived data (storefront delivery estimates).
-        settingsService.InvalidateShipping();
-        logger.LogInformation(
-            "Cash on delivery availability updated. Enabled: {Enabled} (fee: {CodFee})",
-            cmd.Enabled, delivery.EffectiveCodFee);
         return Result.Success();
     }
 }

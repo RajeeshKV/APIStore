@@ -8,6 +8,12 @@ internal sealed class UpdateDeliverySettingsHandler(
     ILogger<UpdateDeliverySettingsHandler> logger)
     : ICommandHandler<UpdateDeliverySettingsCommand, AdminBusinessSettingsResponse>
 {
+    /// <summary>
+    /// The single authoritative mutation for cash-on-delivery. It sets CodEnabled and
+    /// CodExtraFee together, alongside the rest of the shipping configuration, because COD is a
+    /// shipping concern. No other command or endpoint may change COD — see
+    /// SingleCodConfigurationPathTests, which enforces that.
+    /// </summary>
     public async Task<Result<AdminBusinessSettingsResponse>> Handle(
         UpdateDeliverySettingsCommand command,
         CancellationToken cancellationToken)

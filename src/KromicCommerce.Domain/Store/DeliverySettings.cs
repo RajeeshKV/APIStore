@@ -118,8 +118,11 @@ public sealed class DeliverySettings : ValueObject
     /// <summary>
     /// Returns a copy with only the COD availability flag changed and every other
     /// shipping value preserved — including the configured <see cref="CodExtraFee"/>, so
-    /// toggling COD off and on again is lossless. Used by the integrations COD toggle so
-    /// that toggling COD in one place cannot reset the fee or the delivery-day estimates.
+    /// toggling COD off and on again is lossless.
+    ///
+    /// This is an in-model convenience, not a second configuration surface: COD is reachable
+    /// from exactly one endpoint (UpdateDeliverySettings), which calls this to preserve the
+    /// fee and delivery-day estimates when only availability needs to change.
     /// </summary>
     public DeliverySettings WithCodEnabled(bool enabled) => Create(
         FlatFeeAmount,

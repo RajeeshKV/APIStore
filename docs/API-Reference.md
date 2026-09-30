@@ -424,7 +424,6 @@ Addresses are customer-scoped. A customer cannot access another customer's addre
 |--------|-------|------|-------------|
 | GET | `/api/v1/admin/integrations/payment` | Admin | Razorpay status (masked, no secrets) |
 | PUT | `/api/v1/admin/integrations/payment` | Admin | Update Razorpay config |
-| PUT | `/api/v1/admin/integrations/payment/cod` | Admin | Enable or disable cash on delivery |
 | GET | `/api/v1/admin/integrations/google` | Admin | Google OAuth status |
 | PUT | `/api/v1/admin/integrations/google` | Admin | Update Google OAuth config |
 | GET | `/api/v1/admin/integrations/email` | Admin | Brevo email status |
@@ -434,7 +433,11 @@ Addresses are customer-scoped. A customer cannot access another customer's addre
 
 **Security:** Secrets are never returned. Responses contain `isConfigured` flag and masked identifiers only.
 
-**Cash on delivery:** New stores have COD disabled by default. Enable it from the payment settings screen with `PUT /api/v1/admin/integrations/payment/cod` and `{ "enabled": true }`. COD surcharge remains part of delivery settings.
+**Cash on delivery:** COD is **not** configured here. It is a shipping concern and has exactly one
+configuration path: `PUT /api/v1/admin/settings/delivery`, which sets `codEnabled` and
+`codExtraFee` together. The former `PUT /api/v1/admin/integrations/payment/cod` endpoint has been
+**removed** — it created a second surface for one switch, which is what let the Integrations and
+Shipping screens disagree about availability. New stores have COD disabled by default.
 
 **Tracking IDs** (GA4, Meta Pixel) are configured via environment variables (`Tracking__GoogleAnalyticsMeasurementId`, `Tracking__MetaPixelId`) — no admin API endpoint needed. They appear in the public `/store/settings` response.
 
