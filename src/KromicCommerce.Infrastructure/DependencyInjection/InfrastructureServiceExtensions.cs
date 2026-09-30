@@ -45,7 +45,7 @@ public static class InfrastructureServiceExtensions
             .AddCatalogServices()
             .AddPaymentServices()
             .AddEmailServices()
-            .AddSecurityServices()
+            .AddSecurityServices(configuration)
             .AddBackgroundServices()
             .AddHttpContextAccessor();
 
@@ -358,11 +358,33 @@ public static class InfrastructureServiceExtensions
     // -------------------------------------------------------------------------
     // Security services (secret protection, data protection)
     // -------------------------------------------------------------------------
-    private static IServiceCollection AddSecurityServices(this IServiceCollection services)
+    private static IServiceCollection AddSecurityServices(
+        this IServiceCollection services,
+        IConfiguration configuration)
     {
         services.AddDataProtection();
-        services.AddScoped<ISecretProtectionService, DataProtectionSecretService>();
+
+        var environmentKey = configuration[$"{SecretProtectionOptions.SectionName}:EncryptionKey"];
+        if (string.IsNullOrWhiteSpace(environmentKey))
+        {
+            services.AddScoped<ISecretProtectionService, DataProtectionSecretService>();
+            return services;
+        }
+
+        services.AddOptions<SecretProtectionOptions>()
+            .Bind(configuration.GetSection(SecretProtectionOptions.SectionName))
+            .Validate(
+                options => IsValidEnvironmentKey(options.EncryptionKey),
+                "SecretProtection:EncryptionKey must be a base64-encoded 32-byte key.")
+            .ValidateOnStart();
+        services.AddScoped<ISecretProtectionService, EnvironmentKeySecretProtectionService>();
         return services;
+    }
+
+    private static bool IsValidEnvironmentKey(string key)
+    {
+        try { return Convert.FromBase64String(key).Length == 32; }
+        catch (FormatException) { return false; }
     }
 
     // -------------------------------------------------------------------------
