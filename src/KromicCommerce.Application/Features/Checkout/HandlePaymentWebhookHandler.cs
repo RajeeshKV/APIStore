@@ -26,7 +26,8 @@ internal sealed class HandlePaymentWebhookHandler(
         HandlePaymentWebhookCommand command, CancellationToken cancellationToken)
     {
         // Step 1 — Verify signature (rejects tampered/invalid webhooks)
-        var verified = paymentGateway.VerifyWebhook(command.RawPayload, command.Signature);
+        var verified = await paymentGateway.VerifyWebhookAsync(
+            command.RawPayload, command.Signature, cancellationToken);
         if (verified is null)
         {
             logger.LogWarning("Webhook signature verification failed. Provider: {Provider}", command.Provider);
@@ -91,8 +92,9 @@ internal sealed class HandlePaymentWebhookHandler(
                 if (order.Status == OrderStatus.PendingPayment ||
                     order.Status == OrderStatus.PaymentProcessing)
                 {
-                    order.Confirm();
-                    await FinalizeInventoryAsync(order, cancellationToken);
+                    // Payment capture places the order; fulfillment remains an explicit
+                    // merchant action, matching the frontend signature-verification path.
+                    order.MarkPaymentReceived();
                 }
 
                 var payload = JsonSerializer.Serialize(new
@@ -144,28 +146,6 @@ internal sealed class HandlePaymentWebhookHandler(
             cmd.RawPayload);
         we.MarkProcessed();
         db.WebhookEvents.Add(we);
-    }
-
-    private async Task FinalizeInventoryAsync(Order order, CancellationToken ct)
-    {
-        var productIds = order.Items.Select(i => i.ProductId).ToList();
-        var inventoryItems = await db.InventoryItems
-            .Where(i => productIds.Contains(i.ProductId))
-            .ToListAsync(ct);
-
-        foreach (var item in order.Items)
-        {
-            var inv = inventoryItems.FirstOrDefault(
-                i => i.ProductId == item.ProductId && i.VariantId == item.VariantId);
-            if (inv is null) continue;
-            try { inv.FinalizeReservation(item.Quantity); }
-            catch (Exception ex)
-            {
-                logger.LogError(ex,
-                    "FinalizeReservation failed for OrderItem {ItemId} Product {ProductId}",
-                    item.Id, item.ProductId);
-            }
-        }
     }
 
     private async Task ReleaseInventoryAsync(Order order, CancellationToken ct)

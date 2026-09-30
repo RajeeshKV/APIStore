@@ -10,6 +10,9 @@ public interface IPaymentGateway
 {
     string ProviderName { get; }
 
+    /// <summary>Whether the gateway has an enabled, usable configuration.</summary>
+    Task<bool> IsConfiguredAsync(CancellationToken cancellationToken = default);
+
     /// <summary>Creates a payment order at the provider (e.g. Razorpay order).</summary>
     Task<CreatePaymentOrderResult> CreateOrderAsync(
         Guid orderId,
@@ -23,18 +26,20 @@ public interface IPaymentGateway
     /// Must be called before marking an order as paid.
     /// Returns false for any invalid signature — never trust the frontend directly.
     /// </summary>
-    bool VerifyPaymentSignature(
+    Task<bool> VerifyPaymentSignatureAsync(
         string orderId,
         string paymentId,
-        string signature);
+        string signature,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Verifies and extracts structured data from a raw webhook payload.
     /// Returns null when signature validation fails.
     /// </summary>
-    WebhookVerificationResult? VerifyWebhook(
+    Task<WebhookVerificationResult?> VerifyWebhookAsync(
         string rawPayload,
-        string signature);
+        string signature,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Initiates a full refund for a previously captured payment.

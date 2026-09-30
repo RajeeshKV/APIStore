@@ -71,6 +71,19 @@ public sealed class OrderDomainTests
     }
 
     [Fact]
+    public void Payment_received_transitions_from_PaymentProcessing_to_OrderPlaced()
+    {
+        var order = CreateTestOrder();
+        order.MarkPendingPayment();
+        order.MarkPaymentProcessing();
+
+        order.MarkPaymentReceived();
+
+        order.Status.Should().Be(OrderStatus.OrderPlaced);
+        order.PaidAt.Should().NotBeNull();
+    }
+
+    [Fact]
     public void MarkShipped_sets_tracking_info()
     {
         var order = CreateConfirmedOrder();

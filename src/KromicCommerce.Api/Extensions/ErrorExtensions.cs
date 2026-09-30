@@ -23,6 +23,7 @@ internal static class ErrorExtensions
             ErrorType.Conflict => new ConflictObjectResult(body),
             ErrorType.Unauthorized => new UnauthorizedObjectResult(body),
             ErrorType.Forbidden => new ObjectResult(body) { StatusCode = StatusCodes.Status403Forbidden },
+            ErrorType.ServiceUnavailable => new ObjectResult(body) { StatusCode = StatusCodes.Status503ServiceUnavailable },
             _ => new ObjectResult(body) { StatusCode = StatusCodes.Status500InternalServerError }
         };
     }

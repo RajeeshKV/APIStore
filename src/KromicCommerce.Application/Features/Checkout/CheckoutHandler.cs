@@ -43,7 +43,14 @@ internal sealed class CheckoutHandler(
                          && EF.Property<string?>(o, "IdempotencyKey") == command.IdempotencyKey,
                     cancellationToken);
             if (existing is not null)
+            {
+                if (existing.Status == OrderStatus.Failed)
+                    return Result.Failure<CheckoutResponse>(
+                        Error.Conflict("CHECKOUT_ALREADY_FAILED",
+                            "This checkout attempt failed. Start a new checkout attempt to retry payment."));
+
                 return await BuildCheckoutResponse(existing, cancellationToken);
+            }
         }
 
         // -----------------------------------------------------------------------
@@ -98,6 +105,14 @@ internal sealed class CheckoutHandler(
                 Error.Validation("COD_NOT_AVAILABLE", "Cash on delivery is not available for this store."));
 
         var isCod = paymentMethod == PaymentMethod.CashOnDelivery;
+
+        if (paymentMethod == PaymentMethod.Razorpay &&
+            !await paymentGateway.IsConfiguredAsync(cancellationToken))
+        {
+            return Result.Failure<CheckoutResponse>(
+                Error.ServiceUnavailable("RAZORPAY_NOT_CONFIGURED",
+                    "Online payments are temporarily unavailable. Please choose another payment method or try again later."));
+        }
 
         // -----------------------------------------------------------------------
         // Load products + variants + inventory
@@ -256,26 +271,28 @@ internal sealed class CheckoutHandler(
         var payment = Payment.Create(order.Id, paymentMethod.ToString(), grandTotal, currency);
         db.Payments.Add(payment);
 
-        // OrderPlaced outbox event — triggers Order Placed email to customer.
-        // All orders start at OrderPlaced regardless of payment method.
-        // COD and Razorpay both get this event; payment confirmation is a separate event.
-        var outboxPayload = JsonSerializer.Serialize(new
+        if (isCod)
         {
-            order.Id, order.OrderNumber, command.CustomerId,
-            order.GrandTotal, order.CurrencyCode, order.Subtotal,
-            order.ShippingAmount, order.DiscountAmount, order.TaxAmount,
-            order.CodFee, order.AppliedCouponCode,
-            PaymentMethod = order.PaymentMethod.ToString(),
-            ShippingAddress = new
+            // COD orders are placed immediately. Razorpay orders emit payment confirmation
+            // only after a verified payment, so a failed gateway setup never sends an order email.
+            var outboxPayload = JsonSerializer.Serialize(new
             {
-                order.ShippingAddress.FullName,
-                order.ShippingAddress.AddressLine1,
-                order.ShippingAddress.City,
-                order.ShippingAddress.State,
-                order.ShippingAddress.Country
-            }
-        });
-        db.OutboxEvents.Add(OutboxEvent.Create("OrderPlaced", outboxPayload));
+                order.Id, order.OrderNumber, command.CustomerId,
+                order.GrandTotal, order.CurrencyCode, order.Subtotal,
+                order.ShippingAmount, order.DiscountAmount, order.TaxAmount,
+                order.CodFee, order.AppliedCouponCode,
+                PaymentMethod = order.PaymentMethod.ToString(),
+                ShippingAddress = new
+                {
+                    order.ShippingAddress.FullName,
+                    order.ShippingAddress.AddressLine1,
+                    order.ShippingAddress.City,
+                    order.ShippingAddress.State,
+                    order.ShippingAddress.Country
+                }
+            });
+            db.OutboxEvents.Add(OutboxEvent.Create("OrderPlaced", outboxPayload));
+        }
 
         // COD: order stays at OrderPlaced — admin must confirm after stock verification.
         // Payment is collected on delivery; do NOT mark paid or confirm here.
@@ -304,7 +321,12 @@ internal sealed class CheckoutHandler(
                 logger.LogError("Razorpay order creation failed for Order {OrderId}: {Error}",
                     order.Id, pgResult.ErrorMessage);
                 payment.MarkFailed(pgResult.ErrorMessage);
+                order.MarkFailed();
+                ReleaseReservations(cart.Items, inventoryItems);
                 await db.SaveChangesAsync(cancellationToken);
+                return Result.Failure<CheckoutResponse>(
+                    Error.ServiceUnavailable("PAYMENT_INITIALIZATION_FAILED",
+                        "Online payment could not be initialized. Please try again later."));
             }
             else
             {
@@ -386,6 +408,18 @@ internal sealed class CheckoutHandler(
 
         throw new InvalidOperationException(
             "Could not reserve coupon usage after multiple attempts. Please try again.");
+    }
+
+    private static void ReleaseReservations(
+        IEnumerable<CartItem> cartItems,
+        IEnumerable<InventoryItem> inventoryItems)
+    {
+        foreach (var cartItem in cartItems)
+        {
+            var inventory = inventoryItems.FirstOrDefault(i =>
+                i.ProductId == cartItem.ProductId && i.VariantId == cartItem.VariantId);
+            inventory?.Release(cartItem.Quantity);
+        }
     }
 
     // -----------------------------------------------------------------------

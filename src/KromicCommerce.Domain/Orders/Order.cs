@@ -109,7 +109,7 @@ public sealed class Order : AuditableEntity
         [OrderStatus.OrderPlaced]       = [OrderStatus.PendingPayment, OrderStatus.Confirmed, OrderStatus.Cancelled, OrderStatus.Failed],
         // Razorpay: OrderPlaced → PendingPayment while awaiting payment widget
         [OrderStatus.PendingPayment]    = [OrderStatus.PaymentProcessing, OrderStatus.OrderPlaced, OrderStatus.Cancelled, OrderStatus.Failed],
-        [OrderStatus.PaymentProcessing] = [OrderStatus.Confirmed, OrderStatus.Failed, OrderStatus.Cancelled],
+        [OrderStatus.PaymentProcessing] = [OrderStatus.OrderPlaced, OrderStatus.Confirmed, OrderStatus.Failed, OrderStatus.Cancelled],
         [OrderStatus.Confirmed]         = [OrderStatus.Processing, OrderStatus.Cancelled],
         [OrderStatus.Processing]        = [OrderStatus.Packed, OrderStatus.Cancelled],
         [OrderStatus.Packed]            = [OrderStatus.Shipped, OrderStatus.Cancelled],

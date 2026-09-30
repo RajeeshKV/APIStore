@@ -1,7 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using KromicCommerce.Application.Abstractions.Payments;
-using KromicCommerce.Infrastructure.Configuration;
+using KromicCommerce.Application.Abstractions.Security;
+using KromicCommerce.Application.Abstractions.Store;
 using Razorpay.Api;
 
 namespace KromicCommerce.Infrastructure.Payments;
@@ -9,15 +10,22 @@ namespace KromicCommerce.Infrastructure.Payments;
 /// <summary>
 /// Razorpay implementation of IPaymentGateway.
 /// Razorpay SDK types are fully contained here — never exposed to Application or Domain.
-/// API credentials are read from RazorpayOptions (environment variables).
+/// API credentials are read from the encrypted, customer-configurable store settings.
 /// No secrets are logged. Only provider-generated public identifiers are surfaced.
 /// Amount conversion: Razorpay API expects amounts in smallest currency unit (paise for INR).
 /// </summary>
 internal sealed class RazorpayPaymentGateway(
-    IOptions<RazorpayOptions> options,
+    IBusinessSettingsService businessSettings,
+    ISecretProtectionService secretProtection,
     ILogger<RazorpayPaymentGateway> logger) : IPaymentGateway
 {
     public string ProviderName => "Razorpay";
+
+    public async Task<bool> IsConfiguredAsync(CancellationToken cancellationToken = default)
+    {
+        var payment = (await businessSettings.GetAsync(cancellationToken))?.Payment;
+        return payment is { Enabled: true, IsConfigured: true };
+    }
 
     public async Task<CreatePaymentOrderResult> CreateOrderAsync(
         Guid orderId,
@@ -28,8 +36,11 @@ internal sealed class RazorpayPaymentGateway(
     {
         try
         {
-            var opts = options.Value;
-            var client = new RazorpayClient(opts.KeyId, opts.KeySecret);
+            var credentials = await GetCredentialsAsync(cancellationToken);
+            if (credentials is null)
+                return new CreatePaymentOrderResult(false, null, "Razorpay is not configured or enabled.");
+
+            var client = new RazorpayClient(credentials.KeyId, credentials.KeySecret);
 
             // Razorpay amounts are in smallest currency unit (paise for INR)
             var amountInPaise = (int)Math.Round(amount * 100);
@@ -49,6 +60,9 @@ internal sealed class RazorpayPaymentGateway(
                 () => client.Order.Create(orderOptions), cancellationToken);
 
             string providerOrderId = razorpayOrder["id"]?.ToString() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(providerOrderId))
+                return new CreatePaymentOrderResult(false, null, "Razorpay did not return an order ID.");
+
             string logSafeId = providerOrderId; // avoid dynamic dispatch in logger
             logger.LogInformation(
                 "Razorpay order created. InternalOrderId: {OrderId} ProviderOrderId: {ProviderOrderId}",
@@ -65,14 +79,20 @@ internal sealed class RazorpayPaymentGateway(
         }
     }
 
-    public bool VerifyPaymentSignature(string orderId, string paymentId, string signature)
+    public async Task<bool> VerifyPaymentSignatureAsync(
+        string orderId,
+        string paymentId,
+        string signature,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            var opts = options.Value;
+            var credentials = await GetCredentialsAsync(cancellationToken);
+            if (credentials is null) return false;
+
             // Razorpay signature = HMAC-SHA256(orderId + "|" + paymentId, KeySecret)
             var payload = $"{orderId}|{paymentId}";
-            var keyBytes = Encoding.UTF8.GetBytes(opts.KeySecret);
+            var keyBytes = Encoding.UTF8.GetBytes(credentials.KeySecret);
             var payloadBytes = Encoding.UTF8.GetBytes(payload);
 
             var computed = HMACSHA256.HashData(keyBytes, payloadBytes);
@@ -97,13 +117,18 @@ internal sealed class RazorpayPaymentGateway(
         }
     }
 
-    public WebhookVerificationResult? VerifyWebhook(string rawPayload, string signature)
+    public async Task<WebhookVerificationResult?> VerifyWebhookAsync(
+        string rawPayload,
+        string signature,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            var opts = options.Value;
+            var credentials = await GetCredentialsAsync(cancellationToken);
+            if (credentials is null) return null;
+
             // Razorpay webhook signature = HMAC-SHA256(rawPayload, WebhookSecret)
-            var keyBytes = Encoding.UTF8.GetBytes(opts.WebhookSecret);
+            var keyBytes = Encoding.UTF8.GetBytes(credentials.WebhookSecret);
             var payloadBytes = Encoding.UTF8.GetBytes(rawPayload);
             var computed = Convert.ToHexString(HMACSHA256.HashData(keyBytes, payloadBytes))
                 .ToLowerInvariant();
@@ -159,8 +184,11 @@ internal sealed class RazorpayPaymentGateway(
     {
         try
         {
-            var opts = options.Value;
-            var client = new RazorpayClient(opts.KeyId, opts.KeySecret);
+            var credentials = await GetCredentialsAsync(cancellationToken);
+            if (credentials is null)
+                return new RefundResult(false, null, "Razorpay is not configured or enabled.");
+
+            var client = new RazorpayClient(credentials.KeyId, credentials.KeySecret);
             var amountInPaise = (int)Math.Round(amount * 100);
 
             var refundOptions = new Dictionary<string, object>
@@ -195,4 +223,35 @@ internal sealed class RazorpayPaymentGateway(
             return new RefundResult(false, null, ex.Message);
         }
     }
+
+    private async Task<RazorpayCredentials?> GetCredentialsAsync(CancellationToken cancellationToken)
+    {
+        var payment = (await businessSettings.GetAsync(cancellationToken))?.Payment;
+        if (payment is not { Enabled: true, IsConfigured: true } ||
+            string.IsNullOrWhiteSpace(payment.RazorpayKeyId) ||
+            string.IsNullOrWhiteSpace(payment.EncryptedRazorpayKeySecret) ||
+            string.IsNullOrWhiteSpace(payment.EncryptedRazorpayWebhookSecret))
+        {
+            logger.LogWarning("Razorpay was requested without an enabled, complete configuration.");
+            return null;
+        }
+
+        try
+        {
+            return new RazorpayCredentials(
+                payment.RazorpayKeyId,
+                secretProtection.Unprotect(payment.EncryptedRazorpayKeySecret),
+                secretProtection.Unprotect(payment.EncryptedRazorpayWebhookSecret));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Razorpay credentials could not be decrypted.");
+            return null;
+        }
+    }
+
+    private sealed record RazorpayCredentials(
+        string KeyId,
+        string KeySecret,
+        string WebhookSecret);
 }

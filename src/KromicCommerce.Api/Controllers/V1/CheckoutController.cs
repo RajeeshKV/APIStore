@@ -1,10 +1,9 @@
 using Asp.Versioning;
 using KromicCommerce.Application.Abstractions.Auth;
+using KromicCommerce.Application.Abstractions.Store;
 using KromicCommerce.Application.Features.Checkout;
 using KromicCommerce.Contracts.Orders;
-using KromicCommerce.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.Extensions.Options;
 
 namespace KromicCommerce.Api.Controllers.V1;
 
@@ -20,7 +19,7 @@ namespace KromicCommerce.Api.Controllers.V1;
 public sealed class CheckoutController(
     IMediator mediator,
     ICurrentUserService currentUser,
-    IOptions<RazorpayOptions> razorpayOptions)
+    IBusinessSettingsService businessSettings)
     : ControllerBase
 {
     /// <summary>
@@ -48,10 +47,13 @@ public sealed class CheckoutController(
 
         if (!result.IsSuccess) return result.Error.ToActionResult();
 
-        // Inject Razorpay KeyId (public, not secret) for frontend widget initialization
+        // Read the public key from the same persisted Razorpay configuration used by the gateway.
         var response = result.Value;
         if (response.ProviderOrderId is not null)
-            response = response with { RazorpayKeyId = razorpayOptions.Value.KeyId };
+        {
+            var paymentSettings = (await businessSettings.GetAsync(ct))?.Payment;
+            response = response with { RazorpayKeyId = paymentSettings?.RazorpayKeyId };
+        }
 
         return StatusCode(StatusCodes.Status201Created, response);
     }

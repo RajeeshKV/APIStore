@@ -51,10 +51,11 @@ internal sealed class VerifyPaymentHandler(
         }
 
         // Verify signature — this is the only authoritative confirmation
-        var signatureValid = paymentGateway.VerifyPaymentSignature(
+        var signatureValid = await paymentGateway.VerifyPaymentSignatureAsync(
             command.RazorpayOrderId,
             command.RazorpayPaymentId,
-            command.RazorpaySignature);
+            command.RazorpaySignature,
+            cancellationToken);
 
         if (!signatureValid)
         {

@@ -119,7 +119,7 @@ Content-Type: application/json
 | `grandTotal` | Razorpay widget `amount` (multiply × 100 for paise) |
 | `currency` | Razorpay widget `currency` option |
 
-> If `providerOrderId` is `null` on a Razorpay order, the Razorpay API call failed on the backend. Do not open the widget. Show: *"Payment initialisation failed. Please try again."* The order can be retried — send a fresh POST /checkout with the same `idempotencyKey`.
+> A successful Razorpay checkout always includes both `providerOrderId` and `razorpayKeyId`. If Razorpay is unavailable or cannot create an order, checkout returns `503` with `RAZORPAY_NOT_CONFIGURED` or `PAYMENT_INITIALIZATION_FAILED`; do not open the widget. The cart remains intact. Generate a fresh `idempotencyKey` for a later retry.
 
 **For COD orders** — `providerOrderId` and `razorpayKeyId` are always `null`. `orderStatus` is `"OrderPlaced"`. You're done after this call; skip steps 2 and 3.
 
@@ -148,8 +148,9 @@ const options = {
   },
   modal: {
     ondismiss: function () {
-      // User closed the widget without paying.
-      // Order is in PendingPayment state. Let user retry or cancel.
+      // User closed the widget without paying. Keep checkoutResponse in state
+      // so "Retry payment" can reopen this same Razorpay order. A separate
+      // "Cancel order" action calls POST /api/v1/orders/{orderId}/cancel.
       showRetryOption();
     }
   },
@@ -242,7 +243,7 @@ All errors follow the same envelope:
 - [ ] `order_id` in the widget options is `providerOrderId` from the checkout response.
 - [ ] `amount` in the widget options is `grandTotal * 100` (paise) from the checkout response — not your own calculated total.
 - [ ] `POST /payments/verify` is always called after the widget `handler` fires.
-- [ ] The order is only treated as confirmed after `POST /payments/verify` returns `200`.
+- [ ] The order is only treated as placed after `POST /payments/verify` returns `200`.
 - [ ] A fresh `idempotencyKey` (uuidv4) is generated per checkout attempt and reused on retry.
 - [ ] Widget `ondismiss` is handled — user should be able to retry payment without re-placing the order.
 - [ ] For COD orders, there is no Razorpay widget and no verify call — the order is placed and you navigate directly to confirmation.
@@ -272,8 +273,8 @@ Frontend                   Backend                     Razorpay
    │                           │                           │
    │── POST /payments/verify ─▶│                           │
    │                           │── verify HMAC signature   │
-   │                           │── confirm order           │
-   │◀─ { status: "Confirmed" } │                           │
+   │                           │── mark order placed       │
+   │◀─ { paymentStatus: "Paid" }│                           │
    │                           │                           │
    │── navigate to confirmation│                           │
 ```

@@ -38,6 +38,9 @@ public sealed class Error
     public static Error Failure(string code, string description) =>
         new(code, description, ErrorType.Failure);
 
+    public static Error ServiceUnavailable(string code, string description) =>
+        new(code, description, ErrorType.ServiceUnavailable);
+
     public override string ToString() => $"{Code}: {Description}";
 }
 
@@ -48,5 +51,6 @@ public enum ErrorType
     NotFound,
     Conflict,
     Unauthorized,
-    Forbidden
+    Forbidden,
+    ServiceUnavailable
 }
