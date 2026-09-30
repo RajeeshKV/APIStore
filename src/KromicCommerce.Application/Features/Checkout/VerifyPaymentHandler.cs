@@ -66,7 +66,8 @@ internal sealed class VerifyPaymentHandler(
             payment.MarkFailed("Signature verification failed.");
             order.MarkFailed();
 
-            // Release inventory reservations on payment failure
+            // Return the reserved units. The order never reaches Confirmed, so the units are
+            // still in the Reserved bucket and never left OnHand.
             await ReleaseInventoryAsync(order, cancellationToken);
             await db.SaveChangesAsync(cancellationToken);
 
@@ -113,9 +114,19 @@ internal sealed class VerifyPaymentHandler(
         return Result.Success(MapPayment(payment));
     }
 
+    /// <summary>
+    /// Returns reserved units when a payment attempt fails verification.
+    ///
+    /// A failed order never reached Confirmed, so its units are still reserved and never left
+    /// OnHand. Failures are surfaced rather than swallowed: a silently skipped release would
+    /// strand units in Reserved forever, and the order is already Failed so nothing would
+    /// ever attempt the release again.
+    /// </summary>
     private async Task ReleaseInventoryAsync(Order order, CancellationToken ct)
     {
         var productIds = order.Items.Select(i => i.ProductId).ToList();
+        if (productIds.Count == 0) return;
+
         var inventoryItems = await db.InventoryItems
             .Where(i => productIds.Contains(i.ProductId))
             .ToListAsync(ct);
@@ -125,12 +136,14 @@ internal sealed class VerifyPaymentHandler(
             var inv = inventoryItems.FirstOrDefault(
                 i => i.ProductId == item.ProductId && i.VariantId == item.VariantId);
             if (inv is null) continue;
-            try { inv.Release(item.Quantity); }
+
+            try { inv.RestoreForCancellation(item.Quantity); }
             catch (Exception ex)
             {
-                logger.LogError(ex,
-                    "Release failed during payment failure for OrderItem {ItemId} Product {ProductId}",
-                    item.Id, item.ProductId);
+                throw new InvalidOperationException(
+                    $"Inventory release failed for failed order {order.OrderNumber} " +
+                    $"(product {item.ProductId}, qty {item.Quantity}).",
+                    ex);
             }
         }
     }

@@ -40,7 +40,19 @@ public sealed record StorefrontProductResponse(
     // SEO metadata
     string? MetaTitle,
     string? MetaDescription,
-    string? MetaKeywords);
+    string? MetaKeywords)
+{
+    /// <summary>
+    /// DERIVED from <see cref="StockAvailability"/> — never stored or set independently, so the
+    /// contradictory "StockAvailability InStock / IsOutOfStock true" state cannot exist.
+    ///
+    /// For a product with variants this reflects the ROLLUP: true only when every sellable
+    /// variant is out of stock. One purchasable variant makes the product NOT out of stock.
+    /// It is a convenience projection for clients that want a plain boolean; it carries no
+    /// information the enum does not already have.
+    /// </summary>
+    public bool IsOutOfStock => StockAvailability == StockAvailability.OutOfStock;
+}
 
 /// <summary>Public image representation — no Cloudinary internal IDs exposed.</summary>
 public sealed record StorefrontImageResponse(

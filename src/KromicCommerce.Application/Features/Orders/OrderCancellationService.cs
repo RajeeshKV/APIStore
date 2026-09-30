@@ -112,8 +112,30 @@ internal sealed class OrderCancellationService(
         }
 
         // -----------------------------------------------------------------------
-        // 2. Only now is the order cancelled. The transition is legal (checked in step 0)
-        //    and the money has already been returned.
+        // 2. Return stock to sellable.
+        //
+        // Deliberately BEFORE the order is transitioned. If this fails we return without
+        // having mutated the order at all, so the failure leaves a genuinely clean state
+        // rather than one that merely happens not to have been saved. Cancelling anyway
+        // would strand the units permanently, because the state machine forbids
+        // re-cancelling a Cancelled order, so the restore could never be retried.
+        //
+        // A refund recorded in step 1 is already committed at this point. A retry therefore
+        // skips the provider call and comes straight back here, which is the intended
+        // idempotent recovery.
+        // -----------------------------------------------------------------------
+        try
+        {
+            await ReleaseInventoryAsync(order, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Result.Failure(Error.Conflict("INVENTORY_RESTORE_FAILED", ex.Message));
+        }
+
+        // -----------------------------------------------------------------------
+        // 3. Only now is the order cancelled. The transition is legal (checked in step 0),
+        //    the money has been returned, and the stock is back.
         // -----------------------------------------------------------------------
         try
         {
@@ -123,11 +145,6 @@ internal sealed class OrderCancellationService(
         {
             return Result.Failure(Error.Conflict("INVALID_ORDER_TRANSITION", ex.Message));
         }
-
-        // -----------------------------------------------------------------------
-        // 3. Release reserved stock and notify.
-        // -----------------------------------------------------------------------
-        await ReleaseInventoryAsync(order, ct);
 
         db.OutboxEvents.Add(OutboxEvent.Create(
             "OrderCancelled",
@@ -151,9 +168,19 @@ internal sealed class OrderCancellationService(
     }
 
     /// <summary>
-    /// Releases reserved inventory for every order line. Failures are logged but do not
-    /// abort the cancellation: the order is already cancelled and the provider has the money,
-    /// so refusing to persist would leave the database disagreeing with reality.
+    /// Returns every order line's units to sellable stock.
+    ///
+    /// Uses <see cref="InventoryItem.RestoreForCancellation"/> rather than Release, because a
+    /// cancelled order may or may not have been confirmed:
+    ///   - Not confirmed  → units are still reserved and come out of Reserved.
+    ///   - Confirmed      → FinalizeReservation already deducted them from OnHand, so they must
+    ///                       be added back. Plain Release throws in that case, which previously
+    ///                       left a cancelled-and-refunded confirmed order with its units
+    ///                       permanently missing from sellable stock.
+    ///
+    /// Failures are NOT swallowed. Swallowing here made a partial restore unrecoverable: the
+    /// order is already Cancelled, so re-running cancellation throws INVALID_ORDER_TRANSITION
+    /// and the missing units can never be returned.
     /// </summary>
     private async Task ReleaseInventoryAsync(Order order, CancellationToken ct)
     {
@@ -164,19 +191,31 @@ internal sealed class OrderCancellationService(
             .Where(i => productIds.Contains(i.ProductId))
             .ToListAsync(ct);
 
-        foreach (var item in order.Items)
-        {
-            var inv = inventoryItems.FirstOrDefault(
-                i => i.ProductId == item.ProductId && i.VariantId == item.VariantId);
-            if (inv is null) continue;
-            try { inv.Release(item.Quantity); }
-            catch (Exception ex)
+        var targets = order.Items
+            .Select(item => new
             {
-                logger.LogError(ex,
-                    "Inventory release failed during cancellation. OrderId: {OrderId} " +
-                    "OrderItemId: {ItemId} ProductId: {ProductId} Qty: {Qty}",
-                    order.Id, item.Id, item.ProductId, item.Quantity);
+                Item = item,
+                Inventory = inventoryItems.FirstOrDefault(
+                    i => i.ProductId == item.ProductId && i.VariantId == item.VariantId)
+            })
+            .Where(t => t.Inventory is not null)
+            .Select(t => new { t.Item, Inventory = t.Inventory! })
+            .ToList();
+
+        // Validate every line before restoring any, so a later failure cannot leave a
+        // half-applied restore with dirty entities in the change tracker.
+        foreach (var target in targets)
+        {
+            if (!target.Inventory.CanRestoreForCancellation(target.Item.Quantity))
+            {
+                throw new InvalidOperationException(
+                    $"Inventory restore failed for order {order.OrderNumber} " +
+                    $"(product {target.Item.ProductId}, qty {target.Item.Quantity}). " +
+                    "The order was not cancelled. Resolve the inventory discrepancy and retry.");
             }
         }
+
+        foreach (var target in targets)
+            target.Inventory.RestoreForCancellation(target.Item.Quantity);
     }
 }

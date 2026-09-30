@@ -183,6 +183,64 @@ public sealed class PaymentRefundSchemaTests(DatabaseFixture db)
     }
 
     // -----------------------------------------------------------------------
+    // Inventory concurrency (xmin)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// RowVersion maps to PostgreSQL's xmin system column and is configured as a concurrency
+    /// token. This proves the mapping is real: two contexts loading the same row, where the
+    /// first writes, must make the second write fail rather than silently overwriting.
+    ///
+    /// This is the mechanism that prevents overselling. A unit test cannot prove it, because a
+    /// mocked DbContext has no concurrency token at all.
+    /// </summary>
+    [SkippableFact]
+    public async Task A_stale_inventory_write_is_rejected_by_the_concurrency_token()
+    {
+        await using var ctx1 = Db.CreateDbContext();
+        await using var ctx2 = Db.CreateDbContext();
+
+        var product = SeedProduct(ctx1);
+        ctx1.InventoryItems.Add(InventoryItem.Create(product.Id, null, onHand: 1));
+        await ctx1.SaveChangesAsync();
+        var inventoryId = (await ctx1.InventoryItems.FirstAsync(i => i.ProductId == product.Id)).Id;
+
+        // Both contexts load the same row, so both hold the same RowVersion.
+        var first = await ctx1.InventoryItems.FirstAsync(i => i.Id == inventoryId);
+        var second = await ctx2.InventoryItems.FirstAsync(i => i.Id == inventoryId);
+        second.RowVersion.Should().Be(first.RowVersion);
+
+        // Context 1 wins the race and consumes the last unit.
+        first.Reserve(1);
+        await ctx1.SaveChangesAsync();
+
+        // Context 2 still holds the stale token, so its write must be rejected rather than
+        // clobbering the reservation.
+        second.Reserve(1);
+        var act = async () => await ctx2.SaveChangesAsync();
+        await act.Should().ThrowAsync<DbUpdateConcurrencyException>(
+            "a stale write would oversell the final unit");
+    }
+
+    /// <summary>
+    /// The concurrency token is a real database column, not a client-side value, so the unique
+    /// index on (ProductId, VariantId) and the xmin token are both enforced by PostgreSQL.
+    /// </summary>
+    [SkippableFact]
+    public async Task The_concurrency_token_is_backed_by_a_real_column()
+    {
+        await using var ctx = Db.CreateDbContext();
+        var product = SeedProduct(ctx);
+        ctx.InventoryItems.Add(InventoryItem.Create(product.Id, null, onHand: 3));
+        await ctx.SaveChangesAsync();
+        ctx.ChangeTracker.Clear();
+
+        var stored = await ctx.InventoryItems.FirstAsync(i => i.ProductId == product.Id);
+        stored.RowVersion.Should().NotBe(0,
+            "xmin is populated by PostgreSQL, proving the token maps to a real system column");
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 

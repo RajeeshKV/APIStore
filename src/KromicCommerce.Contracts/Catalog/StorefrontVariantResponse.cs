@@ -34,4 +34,14 @@ public sealed record StorefrontVariantResponse(
     /// <see cref="CanPurchase"/> is false for an inactive variant regardless of stock, so a
     /// client can disable the option without re-deriving the rule.
     /// </summary>
-    IReadOnlyList<VariantAttributeValueResponse>? Attributes = null);
+    IReadOnlyList<VariantAttributeValueResponse>? Attributes = null)
+{
+    /// <summary>
+    /// DERIVED from <see cref="StockAvailability"/> — never stored or set independently.
+    ///
+    /// Per-variant, not rolled up: a product is out of stock only when ALL of its variants are.
+    /// Exact unit counts are deliberately not exposed on this public projection; the admin
+    /// projection (VariantResponse.AvailableStock) carries them where an operator needs them.
+    /// </summary>
+    public bool IsOutOfStock => StockAvailability == StockAvailability.OutOfStock;
+}

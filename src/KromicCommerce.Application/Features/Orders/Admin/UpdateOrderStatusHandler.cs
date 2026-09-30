@@ -39,10 +39,13 @@ internal sealed class UpdateOrderStatusHandler(
             switch (command.Status)
             {
                 case OrderStatus.Confirmed:
-                    order.Confirm();
-                    // When admin confirms, finalize inventory (move reserved → fulfilled)
-                    // This applies to both COD (reserved at checkout) and Razorpay (reserved at checkout)
+                    // Consume stock BEFORE transitioning the order. Finalization is the
+                    // fallible step, so it must run first: if it throws, the order has not been
+                    // mutated at all and confirmation can be retried once the shortfall is
+                    // resolved. Doing it in the other order would leave the in-memory order
+                    // Confirmed with only some of its stock consumed.
                     await FinalizeInventoryAsync(order, ct);
+                    order.Confirm();
                     break;
                 case OrderStatus.Processing:    order.MarkProcessing(); break;
                 case OrderStatus.Packed:        order.MarkPacked(); break;
@@ -77,6 +80,18 @@ internal sealed class UpdateOrderStatusHandler(
     // Inventory helpers
     // -----------------------------------------------------------------------
 
+    /// <summary>
+    /// Moves reserved units to sold. Applies identically to COD and Razorpay: both reserve at
+    /// checkout and finalise at this transition, so the two payment methods share one
+    /// consumption point.
+    ///
+    /// Failures are NOT swallowed. If any line cannot be finalised the whole confirmation is
+    /// abandoned and nothing is saved, leaving the order at OrderPlaced with its reservation
+    /// intact. That matters because a partially-finalised order cannot be repaired afterwards:
+    /// the order is already Confirmed, so re-confirming throws and the shortfall is permanent.
+    /// The customer has paid at this point, so the recovery path is to retry confirmation or
+    /// cancel (which refunds and releases) — both existing operations.
+    /// </summary>
     private async Task FinalizeInventoryAsync(Order order, CancellationToken ct)
     {
         var productIds = order.Items.Select(i => i.ProductId).ToList();
@@ -84,19 +99,38 @@ internal sealed class UpdateOrderStatusHandler(
             .Where(i => productIds.Contains(i.ProductId))
             .ToListAsync(ct);
 
-        foreach (var item in order.Items)
-        {
-            var inv = inventoryItems.FirstOrDefault(
-                i => i.ProductId == item.ProductId && i.VariantId == item.VariantId);
-            if (inv is null) continue;
-            try { inv.FinalizeReservation(item.Quantity); }
-            catch (Exception ex)
+        // Pair each line with the inventory row that owns its stock, skipping products that have
+        // no row at all — those are not stock-tracked, which is legitimate for products created
+        // before inventory tracking existed and must not block confirmation.
+        var targets = order.Items
+            .Select(item => new
             {
-                logger.LogError(ex,
-                    "FinalizeReservation failed for OrderItem {ItemId} Product {ProductId}",
-                    item.Id, item.ProductId);
+                Item = item,
+                Inventory = inventoryItems.FirstOrDefault(
+                    i => i.ProductId == item.ProductId && i.VariantId == item.VariantId)
+            })
+            .Where(t => t.Inventory is not null)
+            .Select(t => new { t.Item, Inventory = t.Inventory! })
+            .ToList();
+
+        // Validate every line BEFORE consuming any. Consuming line by line would leave a
+        // half-applied change if a later line fell short, and those mutated entities would
+        // remain dirty in the change tracker.
+        foreach (var target in targets)
+        {
+            if (!target.Inventory.CanFinalizeReservation(target.Item.Quantity))
+            {
+                throw new InvalidOperationException(
+                    $"Cannot confirm order {order.OrderNumber}: only " +
+                    $"{target.Inventory.Reserved} units are reserved for product " +
+                    $"{target.Item.ProductId} but {target.Item.Quantity} are required. " +
+                    "The order was left unconfirmed; resolve the stock shortfall and retry.");
             }
         }
+
+        // Every line is satisfiable, so this cannot partially fail.
+        foreach (var target in targets)
+            target.Inventory.FinalizeReservation(target.Item.Quantity);
     }
 
     // -----------------------------------------------------------------------

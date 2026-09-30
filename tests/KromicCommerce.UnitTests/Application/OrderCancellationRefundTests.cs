@@ -427,6 +427,122 @@ public sealed class OrderCancellationRefundTests
     }
 
     // -----------------------------------------------------------------------
+    // Restoring a CONFIRMED order's stock — the regression this guards
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// A confirmed order's units were already deducted from OnHand by FinalizeReservation, so
+    /// they live in neither Available nor Reserved. Cancelling that order previously called
+    /// Release, which throws on a Reserved of 0 — the exception was swallowed, and the units
+    /// were never returned. Every cancel-after-confirm permanently shrank sellable stock.
+    /// </summary>
+    [Fact]
+    public async Task Cancelling_a_confirmed_order_returns_sold_units_to_stock()
+    {
+        var order = BuildConfirmedRazorpayOrder();
+        order.AddItem(OrderItem.Create(order.Id, Guid.NewGuid(), null, "Widget", null, "SKU-1", 100m, 2));
+
+        // Model the post-confirmation state: 2 units reserved, then finalised away.
+        var productId = order.Items[0].ProductId;
+        var inventory = InventoryItem.Create(productId, null, onHand: 10);
+        inventory.Reserve(2);
+        inventory.FinalizeReservation(2);
+        inventory.OnHand.Should().Be(8);
+        inventory.Reserved.Should().Be(0);
+
+        SetupPayments([BuildCapturedPayment(order.Id, 1000m)]);
+        SetupInventory([inventory]);
+        SetupOutbox();
+        _db.Setup(d => d.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        _gateway.Setup(g => g.RefundAsync(
+                It.IsAny<string>(), It.IsAny<decimal>(), It.IsAny<string>(),
+                It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RefundResult(true, "rfnd_abc", null));
+
+        var result = await BuildService().CancelAsync(
+            order, "customer changed their mind", "admin", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        order.Status.Should().Be(OrderStatus.Cancelled);
+
+        // The whole point: the 2 sold units are back on the shelf.
+        inventory.OnHand.Should().Be(10);
+        inventory.Available.Should().Be(10);
+        inventory.IsOutOfStock.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// The same order, but cancelled before it was ever confirmed. Its units are still
+    /// reserved, so the restore must take them out of Reserved without touching OnHand.
+    /// </summary>
+    [Fact]
+    public async Task Cancelling_an_unconfirmed_order_returns_reserved_units_to_available()
+    {
+        var order = BuildConfirmedRazorpayOrder();
+        order.AddItem(OrderItem.Create(order.Id, Guid.NewGuid(), null, "Widget", null, "SKU-1", 100m, 2));
+
+        var inventory = InventoryItem.Create(order.Items[0].ProductId, null, onHand: 10);
+        inventory.Reserve(2);
+
+        SetupPayments([BuildCapturedPayment(order.Id, 1000m)]);
+        SetupInventory([inventory]);
+        SetupOutbox();
+        _db.Setup(d => d.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        _gateway.Setup(g => g.RefundAsync(
+                It.IsAny<string>(), It.IsAny<decimal>(), It.IsAny<string>(),
+                It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RefundResult(true, "rfnd_abc", null));
+
+        var result = await BuildService().CancelAsync(
+            order, "reason", "admin", CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        inventory.Reserved.Should().Be(0);
+        inventory.OnHand.Should().Be(10, "reserved units were already inside OnHand");
+        inventory.Available.Should().Be(10);
+    }
+
+    /// <summary>
+    /// A failed restore must abort the cancellation rather than cancel anyway. Cancelling
+    /// anyway strands the units permanently, because a Cancelled order can no longer be
+    /// cancelled, so the restore could never be retried.
+    ///
+    /// OnHand is driven to int.MaxValue so that returning one more unit overflows — the only
+    /// way the restore can fail for a well-formed positive-quantity order.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_inventory_restore_leaves_the_order_uncancelled()
+    {
+        var order = BuildConfirmedRazorpayOrder();
+        var inventory = InventoryItem.Create(Guid.NewGuid(), null, int.MaxValue);
+        order.AddItem(OrderItem.Create(
+            order.Id, inventory.ProductId, null, "Widget", null, "SKU-1", 100m, 1));
+
+        SetupPayments([BuildCapturedPayment(order.Id, 1000m)]);
+        SetupInventory([inventory]);
+        SetupOutbox();
+        _db.Setup(d => d.SaveChangesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(1);
+
+        _gateway.Setup(g => g.RefundAsync(
+                It.IsAny<string>(), It.IsAny<decimal>(), It.IsAny<string>(),
+                It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RefundResult(true, "rfnd_abc", null));
+
+        var result = await BuildService().CancelAsync(
+            order, "reason", "admin", CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("INVENTORY_RESTORE_FAILED");
+
+        // The order must remain live and cancellable, so the operation can be retried.
+        order.Status.Should().Be(OrderStatus.Confirmed);
+        order.CanCancel.Should().BeTrue();
+        inventory.OnHand.Should().Be(int.MaxValue, "the failed restore must not have changed stock");
+    }
+
+    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 
