@@ -20,7 +20,10 @@ internal sealed class UpdateCategoryHandler(
 
         category.Update(command.Name, command.Slug, command.Description,
             command.ParentCategoryId, command.SortOrder);
-        if (command.IsActive) category.Activate(); else category.Deactivate();
+        if (command.IsActive.HasValue)
+        {
+            if (command.IsActive.Value) category.Activate(); else category.Deactivate();
+        }
 
         await db.SaveChangesAsync(cancellationToken);
         cache.InvalidateCategories();

@@ -235,7 +235,9 @@ Policy types: `TermsConditions`, `PrivacyPolicy`, `RefundPolicy`, `CancellationP
 | GET | `/api/v1/store/categories/{slug}` | None | Category by slug |
 | GET | `/api/v1/categories` | Admin | All categories (admin view) |
 | POST | `/api/v1/categories` | Admin | Create category |
-| PUT | `/api/v1/categories/{id}` | Admin | Update category |
+| PUT | `/api/v1/categories/{id}` | Admin | Update category (`isActive` is optional; omit it to preserve the current state) |
+| PUT | `/api/v1/categories/{id}/image` | Admin | Upload or replace a category image |
+| DELETE | `/api/v1/categories/{id}/image` | Admin | Remove a category image |
 | DELETE | `/api/v1/categories/{id}` | Admin | Delete (fails if has children or products) |
 
 ---
@@ -248,7 +250,7 @@ Policy types: `TermsConditions`, `PrivacyPolicy`, `RefundPolicy`, `CancellationP
 | GET | `/api/v1/store/brands/{slug}` | None | Brand by slug |
 | GET | `/api/v1/brands` | Admin | All brands (admin view) |
 | POST | `/api/v1/brands` | Admin | Create brand |
-| PUT | `/api/v1/brands/{id}` | Admin | Update brand |
+| PUT | `/api/v1/brands/{id}` | Admin | Update brand (`isActive` is optional; omit it to preserve the current state) |
 | DELETE | `/api/v1/brands/{id}` | Admin | Delete (fails if has products) |
 
 ---

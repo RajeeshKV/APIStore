@@ -19,7 +19,10 @@ internal sealed class UpdateBrandHandler(
                 Error.Conflict("BRAND_SLUG_TAKEN", $"Slug '{command.Slug}' is already in use."));
 
         brand.Update(command.Name, command.Slug, command.Description, command.WebsiteUrl);
-        if (command.IsActive) brand.Activate(); else brand.Deactivate();
+        if (command.IsActive.HasValue)
+        {
+            if (command.IsActive.Value) brand.Activate(); else brand.Deactivate();
+        }
 
         await db.SaveChangesAsync(cancellationToken);
         cache.InvalidateBrands();

@@ -5,4 +5,4 @@ public sealed record UpdateBrandRequest(
     string Slug,
     string? Description,
     string? WebsiteUrl,
-    bool IsActive);
+    bool? IsActive);

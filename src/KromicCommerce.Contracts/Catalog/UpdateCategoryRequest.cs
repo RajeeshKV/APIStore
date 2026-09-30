@@ -6,4 +6,4 @@ public sealed record UpdateCategoryRequest(
     string? Description,
     Guid? ParentCategoryId,
     int SortOrder,
-    bool IsActive);
+    bool? IsActive);
