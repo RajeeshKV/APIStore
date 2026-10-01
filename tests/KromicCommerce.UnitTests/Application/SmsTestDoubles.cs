@@ -16,9 +16,25 @@ internal static class SmsTestDoubles
             IsConfigured: true,
             MissingSettings: []));
 
+    /// <summary>
+    /// A factory reporting SMS as enabled and fully configured, handing out one shared provider.
+    /// Sharing matters for concurrency tests: every request resolves its own provider instance in
+    /// production, but the assertion needs a single place to count what was actually sent.
+    /// </summary>
+    public static ISmsProviderFactory ConfiguredWith(ISmsProvider provider)
+        => new StubFactory(new SmsProviderStatus(
+            Enabled: true,
+            Provider: provider.Kind,
+            IsConfigured: true,
+            MissingSettings: []), provider);
+
     /// <summary>A factory whose status reports SMS as switched off.</summary>
     public static ISmsProviderFactory NotConfigured()
-        => new StubFactory(SmsProviderStatus.Disabled);
+        => new StubFactory(new SmsProviderStatus(
+            Enabled: false,
+            Provider: SmsProviderKind.None,
+            IsConfigured: false,
+            MissingSettings: ["Sms:Enabled"]));
 
     /// <summary>A factory reporting a specific set of unresolved configuration keys.</summary>
     public static ISmsProviderFactory PartiallyConfigured(params string[] missing)
@@ -42,17 +58,27 @@ internal static class SmsTestDoubles
         => new StubTemplateStore(new SmsTemplateSnapshot(provider, "Test template", externalTemplateId, body));
 
     /// <summary>
-    /// No saved administrator selection, so adapters use their configured options. This is the
-    /// state of a deployment that only ever set environment variables.
+    /// No saved administrator selection, so adapters fall back to their configured options. This
+    /// is the state of a deployment that only ever set environment variables.
     /// </summary>
-    public static ISmsProviderSettings NoSavedSettings() => new StubProviderSettings(null);
+    public static SmsProviderSettingsSnapshot? NoSavedSettings() => null;
 
     /// <summary>An administrator has saved a selection and these settings.</summary>
-    public static ISmsProviderSettings SavedSettings(
+    public static SmsProviderSettingsSnapshot SavedSettings(
         SmsProviderKind provider, bool enabled = true, params (string Key, string Value)[] settings)
-        => new StubProviderSettings(
-            new SmsProviderSettingsSnapshot(enabled, provider, settings.ToDictionary(
-                s => s.Key, s => s.Value, StringComparer.OrdinalIgnoreCase)));
+        => new(enabled, provider, settings.ToDictionary(
+            s => s.Key, s => s.Value, StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>An administrator has saved a selection with no settings at all.</summary>
+    public static SmsProviderSettingsSnapshot SavedWithoutSettings(
+        SmsProviderKind provider, bool enabled = true)
+        => new(enabled, provider, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// A settings source backed by a fixed snapshot, or by nothing saved at all.
+    /// </summary>
+    public static ISmsProviderSettings ProviderSettings(SmsProviderSettingsSnapshot? snapshot)
+        => new StubProviderSettings(snapshot);
 
     private sealed class StubProviderSettings(SmsProviderSettingsSnapshot? snapshot) : ISmsProviderSettings
     {
@@ -87,29 +113,41 @@ internal static class SmsTestDoubles
     internal sealed class RecordingProvider(
         SmsSendResult result, SmsProviderKind kind = SmsProviderKind.Twilio) : ISmsProvider
     {
+        private readonly object _gate = new();
+        private readonly List<(string PhoneNumber, string Otp)> _sent = [];
+
         public string ProviderName => "Test";
 
         public SmsProviderKind Kind { get; } = kind;
 
-        public List<(string PhoneNumber, string Otp)> Sent { get; } = [];
+        /// <summary>Guarded because a resend race test drives sends from several threads at once.</summary>
+        public IReadOnlyList<(string PhoneNumber, string Otp)> Sent
+        {
+            get { lock (_gate) { return _sent.ToArray(); } }
+        }
 
         public Task<SmsSendResult> SendOtpAsync(
             string phoneNumber, string otp, CancellationToken cancellationToken = default)
         {
-            Sent.Add((phoneNumber, otp));
+            lock (_gate) { _sent.Add((phoneNumber, otp)); }
             return Task.FromResult(result);
         }
     }
 
-    private sealed class StubFactory(SmsProviderStatus status) : ISmsProviderFactory
+    private sealed class StubFactory(SmsProviderStatus status, ISmsProvider? provider = null) : ISmsProviderFactory
     {
+        private readonly ISmsProvider _provider = provider ?? (status.IsConfigured
+            ? new RecordingProvider(new SmsSendResult(true, "msg-1", null, null, false))
+            : new RecordingProvider(
+                new SmsSendResult(false, null, "SMS_NOT_CONFIGURED", "not configured", false),
+                SmsProviderKind.None));
+
         public SmsProviderStatus Status { get; } = status;
 
-        public ISmsProvider Create()
-            => Status.IsConfigured
-                ? new RecordingProvider(new SmsSendResult(true, "msg-1", null, null, false))
-                : new RecordingProvider(
-                    new SmsSendResult(false, null, "SMS_NOT_CONFIGURED", "not configured", false),
-                    SmsProviderKind.None);
+        public Task<SmsProviderStatus> GetStatusAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(Status);
+
+        public Task<ISmsProvider> CreateAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(_provider);
     }
 }

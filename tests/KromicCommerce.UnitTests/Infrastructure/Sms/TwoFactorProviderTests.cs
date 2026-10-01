@@ -18,13 +18,13 @@ public sealed class TwoFactorProviderTests
         HttpStatusCode status, string body,
         TwoFactorOptions? options = null,
         ISmsTemplateStore? templates = null,
-        ISmsProviderSettings? savedSettings = null)
+        SmsProviderSettingsSnapshot? saved = null)
     {
         var handler = new StubHttpMessageHandler(status, body);
         var provider = new TwoFactorProvider(
             Options.Create(options ?? Complete),
             Options.Create(Policy),
-            savedSettings ?? SmsTestDoubles.NoSavedSettings(),
+            saved,
             templates ?? ApprovedTemplate(),
             new StubHttpClientFactory(handler),
             NullLogger<TwoFactorProvider>.Instance);
@@ -152,18 +152,6 @@ public sealed class TwoFactorProviderTests
         handler.Request!.RequestUri!.ToString().Should().Be("https://proxy.internal/2fa/v9/sms");
     }
 
-    [Fact]
-    public async Task A_saved_selection_for_another_provider_blocks_the_send()
-    {
-        var (provider, handler) = Build(HttpStatusCode.OK, """{"Status":"Success"}""",
-            savedSettings: SmsTestDoubles.SavedSettings(
-                SmsProviderKind.Twilio, true, ("AccountSid", "AC"), ("AuthToken", "t"), ("ServiceSid", "VA")));
-
-        var result = await provider.SendOtpAsync("+919876543210", "4829");
-
-        result.ErrorCode.Should().Be("PROVIDER_NOT_SELECTED");
-        handler.Request.Should().BeNull();
-    }
 
     [Fact]
     public void Reports_its_identity()

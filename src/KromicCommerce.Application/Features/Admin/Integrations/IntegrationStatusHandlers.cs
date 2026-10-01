@@ -79,31 +79,32 @@ internal sealed class GetEmailIntegrationStatusHandler(
 }
 
 /// <summary>
-/// Reports the provider that is actually live, plus the selection the administrator has saved.
+/// Reports the live SMS provider, whether SMS counts as configured, and which settings are
+/// still missing.
 ///
 /// <para>
-/// The two are reported separately on purpose. The factory decides what delivers an OTP from
-/// the configured provider and its credentials, while the admin screen's saved choice is a
-/// separate record. Collapsing them into one field would let the screen show "Twilio" while
-/// Free2SMS is what actually sends, and an administrator debugging a failed send would be
-/// looking at the wrong gateway.
+/// This is the operator's surface, and the only place provider identity is disclosed. The
+/// customer-facing verification status endpoint deliberately omits it.
 /// </para>
 /// </summary>
 internal sealed class GetSmsIntegrationStatusHandler(
-    ISmsProviderFactory smsFactory,
+    ISmsProviderFactory smsProviderFactory,
     ISmsProviderSettings savedSettings)
     : IQueryHandler<GetSmsIntegrationStatusQuery, IntegrationStatusResponse>
 {
     public async Task<Result<IntegrationStatusResponse>> Handle(
         GetSmsIntegrationStatusQuery query, CancellationToken ct)
     {
-        var status = smsFactory.Status;
+        var status = await smsProviderFactory.GetStatusAsync(ct);
         var saved = await savedSettings.GetEffectiveAsync(ct);
 
         // Missing settings are configuration key names, never values — safe to surface and
         // actionable for whoever is setting the provider up.
         var publicFields = new Dictionary<string, string>
         {
+            // Provider identity belongs here, on the admin surface, and not on the customer-facing
+            // verification status endpoint where it is irrelevant to the customer and leaks
+            // infrastructure detail.
             ["provider"] = status.Provider.ToName(),
             ["requireVerifiedPhoneAtCheckout"] = status.RequiresVerification.ToString(),
             ["selectableProviders"] = string.Join(", ",
@@ -122,14 +123,6 @@ internal sealed class GetSmsIntegrationStatusHandler(
             {
                 publicFields["configuredSettings"] = string.Join(", ",
                     saved.Settings.Keys.Order(StringComparer.OrdinalIgnoreCase));
-
-                if (saved.Provider != status.Provider)
-                {
-                    publicFields["warning"] =
-                        $"The administrator selected {saved.Provider.ToName()}, but the configured " +
-                        $"provider is {status.Provider.ToName()}. Delivery uses the configured " +
-                        "provider until Sms__Provider matches the selection.";
-                }
             }
         }
 

@@ -28,7 +28,7 @@ namespace KromicCommerce.Infrastructure.Sms;
 internal sealed class TwoFactorProvider(
     IOptions<TwoFactorOptions> options,
     IOptions<SmsOtpPolicyOptions> otpPolicy,
-    ISmsProviderSettings savedSettings,
+    SmsProviderSettingsSnapshot? saved,
     ISmsTemplateStore templates,
     IHttpClientFactory httpClientFactory,
     ILogger<TwoFactorProvider> logger) : ISmsProvider
@@ -42,22 +42,6 @@ internal sealed class TwoFactorProvider(
     public async Task<SmsSendResult> SendOtpAsync(
         string phoneNumber, string otp, CancellationToken cancellationToken = default)
     {
-        var saved = await savedSettings.GetEffectiveAsync(cancellationToken);
-        if (!SmsSettings.AppliesTo(saved, SmsProviderKind.TwoFactor))
-        {
-            logger.LogError(
-                "2Factor is the configured provider but {Provider} was selected by the administrator.",
-                saved.Provider.ToName());
-            return new SmsSendResult(false, null, "PROVIDER_NOT_SELECTED",
-                "A different SMS provider is currently selected.", false);
-        }
-
-        if (saved is { Enabled: false })
-        {
-            return new SmsSendResult(false, null, "SMS_NOT_CONFIGURED",
-                "SMS delivery is switched off.", false);
-        }
-
         if (!TryToInternational(phoneNumber, out var destination))
         {
             return new SmsSendResult(false, null, "INVALID_PHONE_NUMBER",

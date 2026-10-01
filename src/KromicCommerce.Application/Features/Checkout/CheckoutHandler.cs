@@ -438,8 +438,11 @@ internal sealed class CheckoutHandler(
     private async Task<Error?> EnforcePhoneVerificationAsync(
         Guid customerId, string? addressPhone, CancellationToken ct)
     {
+        // Read from the same authoritative source as the send path, so the gate and delivery
+        // can never disagree about whether SMS is available.
+        var sms = await smsProviderFactory.GetStatusAsync(ct);
         var required = smsPolicyOptions.Value.RequireVerifiedPhoneAtCheckout
-                       && smsProviderFactory.Status.IsConfigured;
+                       && sms.IsConfigured;
 
         if (!required)
             return null;

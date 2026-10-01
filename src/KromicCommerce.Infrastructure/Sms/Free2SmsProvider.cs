@@ -20,7 +20,7 @@ namespace KromicCommerce.Infrastructure.Sms;
 internal sealed class Free2SmsProvider(
     IOptions<Free2SmsOptions> options,
     IOptions<SmsOtpPolicyOptions> otpPolicy,
-    ISmsProviderSettings savedSettings,
+    SmsProviderSettingsSnapshot? saved,
     ISmsTemplateStore templates,
     IHttpClientFactory httpClientFactory,
     ILogger<Free2SmsProvider> logger) : ISmsProvider
@@ -43,22 +43,6 @@ internal sealed class Free2SmsProvider(
     public async Task<SmsSendResult> SendOtpAsync(
         string phoneNumber, string otp, CancellationToken cancellationToken = default)
     {
-        var saved = await savedSettings.GetEffectiveAsync(cancellationToken);
-        if (!SmsSettings.AppliesTo(saved, SmsProviderKind.Free2Sms))
-        {
-            logger.LogError(
-                "Free2SMS is the configured provider but {Provider} was selected by the administrator.",
-                saved.Provider.ToName());
-            return new SmsSendResult(false, null, "PROVIDER_NOT_SELECTED",
-                "A different SMS provider is currently selected.", false);
-        }
-
-        if (saved is { Enabled: false })
-        {
-            return new SmsSendResult(false, null, "SMS_NOT_CONFIGURED",
-                "SMS delivery is switched off.", false);
-        }
-
         if (SmsPhoneNumber.TryToNational(phoneNumber) is not { } national)
         {
             return new SmsSendResult(false, null, "INVALID_PHONE_NUMBER",

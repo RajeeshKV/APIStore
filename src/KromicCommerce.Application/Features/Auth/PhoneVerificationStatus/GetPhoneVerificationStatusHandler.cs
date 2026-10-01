@@ -19,10 +19,10 @@ internal sealed class GetPhoneVerificationStatusHandler(
     : IQueryHandler<GetPhoneVerificationStatusQuery, PhoneVerificationStatusResponse>
 {
     public async Task<Result<PhoneVerificationStatusResponse>> Handle(
-        GetPhoneVerificationStatusQuery query, CancellationToken cancellationToken)
+        GetPhoneVerificationStatusQuery query, CancellationToken ct)
     {
         var policy = smsPolicyOptions.Value;
-        var status = smsProviderFactory.Status;
+        var status = await smsProviderFactory.GetStatusAsync(ct);
 
         // Requirement = policy asks for it AND a provider can actually deliver a code.
         // With SMS off, verification is impossible, so requiring it would lock every customer out.
@@ -30,7 +30,7 @@ internal sealed class GetPhoneVerificationStatusHandler(
 
         var user = await db.Users
             .AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Id == query.UserId, cancellationToken);
+            .FirstOrDefaultAsync(u => u.Id == query.UserId, ct);
 
         if (user is null)
         {
@@ -45,10 +45,10 @@ internal sealed class GetPhoneVerificationStatusHandler(
             VerificationRequired: required,
             PhoneNumber: phone,
             Verified: verified,
+            PendingPhoneNumber: SmsPhoneNumber.TryToE164(user.PendingPhoneNumber),
             VerificationSatisfied: !required || verified,
             OtpLength: policy.Length,
             OtpExpiryMinutes: policy.ExpiryMinutes,
-            ResendCooldownSeconds: policy.ResendCooldownSeconds,
-            ActiveProvider: status.Provider.ToString()));
+            ResendCooldownSeconds: policy.ResendCooldownSeconds));
     }
 }

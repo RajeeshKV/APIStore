@@ -176,7 +176,7 @@ All errors share one envelope (§4). Render inline, keep the customer's input, n
 | `OTP_INVALID` | 400 | Inline: "That code is not correct. Check it and try again." Clear the code box, keep the number. |
 | `OTP_MAX_ATTEMPTS` | 400 | Inline: "Too many incorrect attempts. Request a new code." Force the resend affordance, disable submit until a new code is sent. |
 | `INVALID_PHONE_NUMBER` | 400 | Field error on the phone box: "Enter a valid 10-digit mobile number." Return to State A. |
-| `OTP_COOLDOWN` | 409 | Neutral banner, not an error: "You can request another code shortly." Start/refresh the resend countdown. |
+| `OTP_COOLDOWN` | 409 | Neutral banner, not an error: "You can request another code shortly." Start/refresh the resend countdown. Also returned when a send is already in flight for this number and purpose, so treat it as the same "wait" outcome. |
 | `OTP_SEND_FAILED` | 500 | Banner: "We couldn't send the code. Try again." Keep the resend button enabled — a send failure consumes no cooldown. |
 | `SMS_NOT_CONFIGURED` | 500 | Banner: "Verification codes are unavailable right now. Please contact support." Disable the flow. |
 | *(rate limited)* | 429 | Banner: "Too many attempts. Try again shortly." Disable both actions for the window. |
@@ -197,7 +197,13 @@ copy otherwise.
 
 The same screen is reused, with a different `purpose`:
 
-- **Account settings** — add or change the phone number on the profile.
+- **Account settings** — add or change the phone number on the profile. Note that changing a
+  number is now a two-step flow: the backend stages a replacement in `pendingPhoneNumber` and only
+  promotes it to `phoneNumber` once the OTP for the new number is verified. Read `pendingPhoneNumber`
+  from the profile response and, when it is set, show the number as "pending verification" rather
+  than displaying the old one as though the change were already live. The phone field on the profile
+  still reports the currently verified number, so never treat it alone as proof that a requested
+  change took effect.
 - **Address book** — when creating or editing an address, the phone can be omitted; the backend
   fills it from the verified account number. Pre-fill it in the UI from
   `verificationStatus.phoneNumber` so what the customer sees matches what is stored.
@@ -359,8 +365,7 @@ Response `200`:
   "verificationSatisfied": false,
   "otpLength": 4,
   "otpExpiryMinutes": 10,
-  "resendCooldownSeconds": 60,
-  "activeProvider": "Twilio"
+  "resendCooldownSeconds": 60
 }
 ```
 
@@ -373,7 +378,10 @@ Response `200`:
 | `otpLength` | Render the code input at this width. Currently 4. |
 | `otpExpiryMinutes` | Display hint for the expiry copy. |
 | `resendCooldownSeconds` | Display hint for the resend copy. |
-| `activeProvider` | Diagnostics only — the internal enum name (`Twilio`, `TwoFactor`, `Free2Sms`), which does **not** match the customer-facing names (`Twilio`, `2Factor`, `Free2SMS`). Never render it. |
+
+There is deliberately no provider field on this endpoint. Which gateway the store runs is an
+internal detail that exposes infrastructure and gives a customer nothing they can act on. If you
+need it for a support screen, read it from the admin integration-status endpoint instead.
 
 Errors: 401 unauthenticated, 404 `USER_NOT_FOUND`.
 
@@ -449,8 +457,7 @@ Branch on `error.code`, never on `error.message`.
 
 `SMS_NOT_CONFIGURED` is a store misconfiguration, not a customer mistake. Present it as a
 support message and disable the flow: telling a customer which vendor setting is missing leaks
-your infrastructure and tells them nothing they can act on. Never render `activeProvider`
-either.
+your infrastructure and tells them nothing they can act on.
 
 ### 5.4 Session state
 
@@ -581,7 +588,6 @@ Read these before designing the screens - each one will otherwise look like a fr
 - [ ] Pasting a code from the SMS works, including with spaces or a leading country code.
 - [ ] A successful verify refetches verification-status before enabling checkout.
 - [ ] `SMS_NOT_CONFIGURED` is shown as a support message and disables the flow.
-- [ ] `activeProvider` is never rendered.
 - [ ] 6 rapid requests produce a handled 429, not an unhandled rejection.
 - [ ] Nothing writes the OTP to storage, analytics, or the console.
 

@@ -39,6 +39,7 @@ public sealed class AppDbContext(
     // -----------------------------------------------------------------------
     public DbSet<SmsTemplate> SmsTemplates => Set<SmsTemplate>();
     public DbSet<SmsProviderConfig> SmsProviderConfigs => Set<SmsProviderConfig>();
+    public DbSet<OtpSendClaim> OtpSendClaims => Set<OtpSendClaim>();
 
     // -----------------------------------------------------------------------
     // Catalog
@@ -239,6 +240,43 @@ public sealed class AppDbContext(
                 cancellationToken);
         }
     }
+
+    public async Task<bool> TryAcquireOtpSendClaimAsync(
+        string phoneNumber,
+        OtpPurpose purpose,
+        DateTime staleBefore,
+        CancellationToken cancellationToken = default)
+    {
+        // Reclaim a claim whose owner died mid-send. Without this a crash during delivery
+        // would block resends for the whole staleness window.
+        await Database.ExecuteSqlRawAsync(
+            @"DELETE FROM otp_send_claims
+              WHERE ""PhoneNumber"" = {0} AND ""Purpose"" = {1} AND ""CreatedAt"" < {2}",
+            new object[] { phoneNumber, purpose.ToString(), staleBefore },
+            cancellationToken);
+
+        // ON CONFLICT DO NOTHING — the unique index ix_otp_send_claims_phone_purpose decides
+        // the winner. Both concurrent requests reach this INSERT; exactly one inserts, and the
+        // other is told it lost without an exception to unwind.
+        var affected = await Database.ExecuteSqlRawAsync(
+            @"INSERT INTO otp_send_claims (""Id"", ""PhoneNumber"", ""Purpose"", ""CreatedAt"")
+              VALUES ({0}, {1}, {2}, {3})
+              ON CONFLICT DO NOTHING",
+            new object[] { Guid.NewGuid(), phoneNumber, purpose.ToString(), DateTime.UtcNow },
+            cancellationToken);
+
+        return affected == 1;
+    }
+
+    public async Task ReleaseOtpSendClaimAsync(
+        string phoneNumber,
+        OtpPurpose purpose,
+        CancellationToken cancellationToken = default)
+        => await Database.ExecuteSqlRawAsync(
+            @"DELETE FROM otp_send_claims
+              WHERE ""PhoneNumber"" = {0} AND ""Purpose"" = {1}",
+            new object[] { phoneNumber, purpose.ToString() },
+            cancellationToken);
 
     private static string GenerateAnonymousCartId()
     {

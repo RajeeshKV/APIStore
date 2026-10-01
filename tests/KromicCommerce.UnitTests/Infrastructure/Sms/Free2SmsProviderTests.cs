@@ -13,13 +13,13 @@ public sealed class Free2SmsProviderTests
         HttpStatusCode status, string body,
         Free2SmsOptions? options = null,
         ISmsTemplateStore? templates = null,
-        ISmsProviderSettings? savedSettings = null)
+        SmsProviderSettingsSnapshot? saved = null)
     {
         var handler = new StubHttpMessageHandler(status, body);
         var provider = new Free2SmsProvider(
             Options.Create(options ?? new Free2SmsOptions { ApiKey = "key-123", SenderId = "F2SMS" }),
             Options.Create(Policy),
-            savedSettings ?? SmsTestDoubles.NoSavedSettings(),
+            saved,
             templates ?? SmsTestDoubles.Templates(),
             new StubHttpClientFactory(handler),
             NullLogger<Free2SmsProvider>.Instance);

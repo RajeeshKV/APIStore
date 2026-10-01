@@ -23,6 +23,7 @@ internal sealed class GetCustomerProfileHandler(IApplicationDbContext db)
             // self-declared, unverified number masquerade as the account's contact number.
             user.PhoneNumber,
             user.PhoneNumberVerified,
+            user.PendingPhoneNumber,
             profile?.AvatarUrl,
             profile?.DateOfBirth,
             profile?.NewsletterConsent ?? false,

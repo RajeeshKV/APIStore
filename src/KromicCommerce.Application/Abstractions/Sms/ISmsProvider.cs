@@ -11,7 +11,7 @@ namespace KromicCommerce.Application.Abstractions.Sms;
 /// </remarks>
 public interface ISmsProvider
 {
-    /// <summary>Provider name for logging and diagnostics (e.g. "TechTo"). Never logs the OTP itself.</summary>
+    /// <summary>Provider name for logging and diagnostics (e.g. "Twilio"). Never logs the OTP itself.</summary>
     string ProviderName { get; }
 
     /// <summary>Which integration backs this adapter.</summary>

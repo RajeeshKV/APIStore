@@ -5,6 +5,7 @@ namespace KromicCommerce.Application.Features.Me.Profile;
 
 internal sealed class UpdateCustomerProfileHandler(
     IApplicationDbContext db,
+    ISmsProviderFactory smsProviderFactory,
     IOptions<SmsPolicyOptions> smsPolicyOptions)
     : ICommandHandler<UpdateCustomerProfileCommand, CustomerProfileResponse>
 {
@@ -39,10 +40,23 @@ internal sealed class UpdateCustomerProfileHandler(
         {
             var canonical = SmsPhoneNumber.TryToE164(command.PhoneNumber) ?? command.PhoneNumber.Trim();
 
-            // A self-declared number is never verified on the way in. With SMS configured the
-            // customer must prove control; with SMS off the number is still accepted and used
-            // for contact, it just cannot satisfy a checkout verification requirement.
-            user.SetPhoneNumber(canonical, verified: false);
+            // Whether SMS can actually deliver decides what a submitted number means.
+            var smsOperational = await smsProviderFactory.GetStatusAsync(ct);
+
+            if (smsOperational.IsConfigured)
+            {
+                // A self-declared number is never verified on the way in. It is held as pending
+                // and only becomes the account number once an OTP sent to it is accepted, so a
+                // change in progress cannot strip an existing verified number.
+                user.RequestPhoneNumberChange(canonical);
+            }
+            else
+            {
+                // With SMS unavailable there is no way to prove ownership, so a verification
+                // requirement could never be satisfied. Preserve the existing behaviour: accept
+                // the number for contact, simply unverified.
+                user.SetPhoneNumber(canonical, verified: false);
+            }
         }
 
         await db.SaveChangesAsync(ct);
@@ -53,6 +67,7 @@ internal sealed class UpdateCustomerProfileHandler(
             profile.DisplayName,
             user.PhoneNumber,
             user.PhoneNumberVerified,
+            user.PendingPhoneNumber,
             profile.AvatarUrl,
             profile.DateOfBirth,
             profile.NewsletterConsent,

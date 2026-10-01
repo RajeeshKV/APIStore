@@ -57,7 +57,9 @@ internal sealed class VerifyOtpHandler(
             if (user is null)
                 return Result.Failure(Error.NotFound("USER_NOT_FOUND", "User not found."));
 
-            user.SetPhoneNumber(canonicalPhone, verified: true);
+            // Promote rather than plain-set, so any pending change is resolved and the account
+            // ends up with exactly one verified number.
+            user.PromotePendingPhoneNumber(canonicalPhone);
         }
 
         await db.SaveChangesAsync(cancellationToken);

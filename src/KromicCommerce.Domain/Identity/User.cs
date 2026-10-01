@@ -51,8 +51,9 @@ public sealed class User : AuditableEntity
     public string? PasswordHash { get; private set; }
     public string? FirstName { get; private set; }
     public string? LastName { get; private set; }
-    public string? PhoneNumber { get; private set; }
-    public bool PhoneNumberVerified { get; private set; }
+
+    // PhoneNumber, PhoneNumberVerified and PendingPhoneNumber are declared with the phone
+    // behaviour below, so their documentation sits next to the rules that maintain them.
 
     /// <summary>Optional unique username for admin login. Null for customers.</summary>
     public string? Username { get; private set; }
@@ -147,7 +148,32 @@ public sealed class User : AuditableEntity
     }
 
     /// <summary>
-    /// The single source of truth for this account's phone number.
+    /// The single source of truth for this account's phone number — the one checkout, the
+    /// verification status endpoint and address auto-fill all read.
+    /// </summary>
+    /// <remarks>
+    /// Only ever set to a number that has been proven, or when SMS cannot verify at all. A
+    /// self-declared number belongs in <see cref="PendingPhoneNumber"/>.
+    /// </remarks>
+    public string? PhoneNumber { get; private set; }
+
+    /// <summary>Whether <see cref="PhoneNumber"/> has been proven to belong to this customer.</summary>
+    public bool PhoneNumberVerified { get; private set; }
+
+    /// <summary>
+    /// A number the customer asked to change to, awaiting proof of ownership.
+    /// </summary>
+    /// <remarks>
+    /// Held separately from <see cref="PhoneNumber"/> so a verification in progress cannot damage
+    /// the verified state. Writing an unproven number straight into <see cref="PhoneNumber"/>
+    /// would clear an existing verification immediately — so a customer who began a change and
+    /// then abandoned it would be left with no verified number and no way back except finishing
+    /// the new verification.
+    /// </remarks>
+    public string? PendingPhoneNumber { get; private set; }
+
+    /// <summary>
+    /// Sets the account phone directly.
     ///
     /// <para>
     /// Changing the number always resets <see cref="PhoneNumberVerified"/>: verification is a
@@ -162,7 +188,47 @@ public sealed class User : AuditableEntity
 
         PhoneNumber = normalized;
         PhoneNumberVerified = unchanged ? PhoneNumberVerified && verified : verified;
+
+        // An account that has just been proven verified has nothing pending.
+        if (PhoneNumberVerified)
+            PendingPhoneNumber = null;
     }
+
+    /// <summary>
+    /// Records a number the customer wants to use, without disturbing the current verified
+    /// number. The change takes effect only through <see cref="PromotePendingPhoneNumber"/>.
+    /// </summary>
+    public void RequestPhoneNumberChange(string phoneNumber)
+    {
+        var normalized = phoneNumber.Trim();
+
+        // Already the verified number: nothing to prove, so do not ask the customer to verify a
+        // number we have already verified.
+        if (PhoneNumberVerified
+            && string.Equals(PhoneNumber, normalized, StringComparison.Ordinal))
+        {
+            PendingPhoneNumber = null;
+            return;
+        }
+
+        PendingPhoneNumber = normalized;
+    }
+
+    /// <summary>
+    /// Promotes the pending number to the verified account number. Called only once an OTP sent
+    /// to <paramref name="verifiedPhone"/> has been accepted.
+    /// </summary>
+    public void PromotePendingPhoneNumber(string verifiedPhone)
+    {
+        PhoneNumber = verifiedPhone.Trim();
+        PhoneNumberVerified = true;
+        PendingPhoneNumber = null;
+    }
+
+    /// <summary>
+    /// Abandons a pending change, leaving the verified number exactly as it was.
+    /// </summary>
+    public void ClearPendingPhoneNumber() => PendingPhoneNumber = null;
 
     /// <summary>
     /// Increment TokenVersion to invalidate all existing access tokens.

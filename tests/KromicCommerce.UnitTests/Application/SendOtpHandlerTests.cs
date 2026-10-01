@@ -8,15 +8,35 @@ public sealed class SendOtpHandlerTests
     private static (SendOtpHandler Handler, Mock<IApplicationDbContext> Db, List<OtpRequest> Rows) Build(
         ISmsProviderFactory factory, List<OtpRequest>? existing = null,
         int cooldownSeconds = 60, int maxAttempts = 5, int length = SmsOtpDefaults.Length,
-        Mock<IOtpService>? otpService = null)
+        Mock<IOtpService>? otpService = null,
+        ExclusiveClaimStore? claims = null,
+        Action? beforeAcquire = null)
     {
         var rows = existing ?? [];
+        var claimStore = claims ?? new ExclusiveClaimStore();
         var db = new Mock<IApplicationDbContext>();
         db.Setup(d => d.OtpRequests).Returns(MockDbSet<OtpRequest>(rows));
         // A mocked DbSet discards Add, so mirror it into the list the test asserts on.
         db.Setup(d => d.OtpRequests.Add(It.IsAny<OtpRequest>())).Callback<OtpRequest>(rows.Add);
         db.Setup(d => d.SaveChangesAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(1);
+
+        // Claims default to always being winnable, so only tests about the claim itself opt into
+        // the exclusivity the real unique index provides.
+        db.Setup(d => d.TryAcquireOtpSendClaimAsync(
+                It.IsAny<string>(), It.IsAny<OtpPurpose>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Returns((string phone, OtpPurpose purpose, DateTime staleBefore, CancellationToken _) =>
+            {
+                beforeAcquire?.Invoke();
+                return Task.FromResult(claimStore.TryAcquire(phone, purpose, staleBefore));
+            });
+        db.Setup(d => d.ReleaseOtpSendClaimAsync(
+                It.IsAny<string>(), It.IsAny<OtpPurpose>(), It.IsAny<CancellationToken>()))
+            .Returns((string phone, OtpPurpose purpose, CancellationToken _) =>
+            {
+                claimStore.Release(phone, purpose);
+                return Task.CompletedTask;
+            });
 
         otpService ??= new Mock<IOtpService>();
         otpService.Setup(s => s.GenerateOtp(It.IsAny<int>()))
@@ -156,6 +176,83 @@ public sealed class SendOtpHandlerTests
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Only_one_of_many_simultaneous_resends_actually_sends()
+    {
+        // Reproduces the production failure this guards against: an impatient customer taps
+        // "resend" several times, or a flaky connection retries the request. Every extra request
+        // used to pass the cooldown check (no row was visible yet) and buy a second SMS while the
+        // first code was still in flight.
+        //
+        // The claim double below enforces exclusivity exactly as the unique index on
+        // (PhoneNumber, Purpose) does in PostgreSQL, so this asserts the handler actually
+        // serialises on it rather than just that it calls it.
+        var rows = new List<OtpRequest>();
+        var claims = new ExclusiveClaimStore();
+        var provider = new SmsTestDoubles.RecordingProvider(
+            new SmsSendResult(true, "msg-1", null, null, false));
+
+        var gate = new Barrier(8);
+        var sends = Enumerable.Range(0, 8).Select(_ => Task.Run(async () =>
+        {
+            var (handler, _, _) = Build(
+                SmsTestDoubles.ConfiguredWith(provider),
+                rows,
+                otpService: new Mock<IOtpService>(),
+                claims: claims,
+                beforeAcquire: () => gate.SignalAndWait(TimeSpan.FromSeconds(5)));
+            return await handler.Handle(
+                new SendOtpCommand("9876543210", OtpPurpose.PhoneVerification, Guid.NewGuid()),
+                CancellationToken.None);
+        })).ToArray();
+
+        var results = await Task.WhenAll(sends);
+
+        // One winner; everybody else was told to wait rather than told SMS is broken.
+        provider.Sent.Should().ContainSingle();
+        // Proves the barrier really did line all eight requests up on the claim, so the single
+        // send above is the claim working and not a test that quietly ran one request.
+        claims.Attempts.Should().Be(8);
+        results.Count(r => r.IsSuccess).Should().Be(1);
+        results.Should().OnlyContain(r => r.IsSuccess || r.Error.Code == "OTP_COOLDOWN");
+        rows.Should().ContainSingle();
+    }
+
+    /// <summary>
+    /// A stand-in for the <c>otp_send_claims</c> table that enforces its UNIQUE(PhoneNumber,
+    /// Purpose) index, including the staleness rule the handler relies on to recover from a
+    /// crashed request. Lets concurrency behaviour be tested without a database.
+    /// </summary>
+    private sealed class ExclusiveClaimStore
+    {
+        private readonly object _gate = new();
+        private readonly Dictionary<(string, OtpPurpose), DateTime> _claims = [];
+
+        public int Attempts { get; private set; }
+
+        public bool TryAcquire(string phone, OtpPurpose purpose, DateTime staleBefore)
+        {
+            lock (_gate)
+            {
+                Attempts++;
+
+                if (_claims.TryGetValue((phone, purpose), out var takenAt)
+                    && takenAt > staleBefore)
+                {
+                    return false;
+                }
+
+                _claims[(phone, purpose)] = DateTime.UtcNow;
+                return true;
+            }
+        }
+
+        public void Release(string phone, OtpPurpose purpose)
+        {
+            lock (_gate) { _claims.Remove((phone, purpose)); }
+        }
     }
 
     private static DbSet<T> MockDbSet<T>(List<T> data) where T : class

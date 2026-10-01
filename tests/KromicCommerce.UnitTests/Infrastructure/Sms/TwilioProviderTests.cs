@@ -20,13 +20,13 @@ public sealed class TwilioProviderTests
         HttpStatusCode status, string body,
         TwilioOptions? options = null,
         ISmsTemplateStore? templates = null,
-        ISmsProviderSettings? savedSettings = null)
+        SmsProviderSettingsSnapshot? saved = null)
     {
         var handler = new StubHttpMessageHandler(status, body);
         var provider = new TwilioProvider(
             Options.Create(options ?? Complete),
             Options.Create(Policy),
-            savedSettings ?? SmsTestDoubles.NoSavedSettings(),
+            saved,
             templates ?? SmsTestDoubles.Templates(),
             new StubHttpClientFactory(handler),
             NullLogger<TwilioProvider>.Instance);
@@ -173,7 +173,7 @@ public sealed class TwilioProviderTests
                 AuthToken = "from-config",
                 ServiceSid = Complete.ServiceSid
             },
-            savedSettings: SmsTestDoubles.SavedSettings(
+            saved: SmsTestDoubles.SavedSettings(
                 SmsProviderKind.Twilio, true, ("AuthToken", "from-admin"), ("ServiceSid", "VA-admin")));
 
         await provider.SendOtpAsync("+919876543210", "4829");
@@ -184,33 +184,7 @@ public sealed class TwilioProviderTests
         handler.Request.RequestUri!.ToString().Should().Contain("VA-admin");
     }
 
-    [Fact]
-    public async Task A_saved_selection_for_another_provider_blocks_the_send()
-    {
-        var (provider, handler) = Build(HttpStatusCode.Created, """{"status":"pending"}""",
-            savedSettings: SmsTestDoubles.SavedSettings(
-                SmsProviderKind.Free2Sms, true, ("ApiKey", "k"), ("SenderId", "F2SMS")));
 
-        var result = await provider.SendOtpAsync("+919876543210", "4829");
-
-        result.Success.Should().BeFalse();
-        result.ErrorCode.Should().Be("PROVIDER_NOT_SELECTED");
-        handler.Request.Should().BeNull();
-    }
-
-    [Fact]
-    public async Task A_saved_disabled_selection_blocks_the_send()
-    {
-        var (provider, handler) = Build(HttpStatusCode.Created, """{"status":"pending"}""",
-            savedSettings: SmsTestDoubles.SavedSettings(
-                SmsProviderKind.Twilio, false, ("AccountSid", "AC"), ("AuthToken", "t"), ("ServiceSid", "VA")));
-
-        var result = await provider.SendOtpAsync("+919876543210", "4829");
-
-        result.Success.Should().BeFalse();
-        result.ErrorCode.Should().Be("SMS_NOT_CONFIGURED");
-        handler.Request.Should().BeNull();
-    }
 
     [Fact]
     public void Reports_its_identity()

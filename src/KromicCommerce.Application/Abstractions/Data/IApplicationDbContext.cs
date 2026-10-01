@@ -40,6 +40,7 @@ public interface IApplicationDbContext
     // -----------------------------------------------------------------------
     DbSet<SmsTemplate> SmsTemplates { get; }
     DbSet<SmsProviderConfig> SmsProviderConfigs { get; }
+    DbSet<OtpSendClaim> OtpSendClaims { get; }
 
     // -----------------------------------------------------------------------
     // Catalog
@@ -112,10 +113,46 @@ public interface IApplicationDbContext
     /// no read-modify-write race, no lost updates.
     /// Relies on the unique index ix_cart_items_cart_product_variant (NULLS NOT DISTINCT).
     /// </summary>
-    Task UpsertCartItemAsync(
+Task UpsertCartItemAsync(
         Guid cartId,
         Guid productId,
-        Guid? variantId,
+        Guid? productVariantId,
         int quantity,
+        CancellationToken cancellationToken = default);
+
+    // -----------------------------------------------------------------------
+    // OTP send claim
+    // -----------------------------------------------------------------------
+    // The resend cooldown is enforced by reading the previous OTP row, and that
+    // read-then-write sequence was not concurrency-safe: two simultaneous requests could
+    // both observe "no recent code", both send an SMS, and both write a row. An in-memory
+    // lock cannot help because the API may run as several instances.
+    //
+    // These methods use INSERT ... ON CONFLICT DO NOTHING, so the UNIQUE index on
+    // (PhoneNumber, Purpose) decides the winner. Application checks cannot: any read a
+    // request performs can be overtaken between the read and the write.
+
+    /// <summary>
+    /// Atomically takes the send claim for a phone number and purpose.
+    /// Returns <c>true</c> when this caller owns the send and <c>false</c> when another
+    /// request for the same number and purpose already holds it.
+    /// </summary>
+    /// <param name="staleBefore">
+    /// Claims created before this instant are treated as abandoned (their owner died
+    /// mid-send) and may be taken over. Must exceed the worst-case gateway send duration.
+    /// </param>
+    Task<bool> TryAcquireOtpSendClaimAsync(
+        string phoneNumber,
+        OtpPurpose purpose,
+        DateTime staleBefore,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Releases the send claim. Idempotent, and must be called from a finally block so a
+    /// failed or cancelled request does not block subsequent sends until the claim goes stale.
+    /// </summary>
+    Task ReleaseOtpSendClaimAsync(
+        string phoneNumber,
+        OtpPurpose purpose,
         CancellationToken cancellationToken = default);
 }

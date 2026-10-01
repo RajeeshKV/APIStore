@@ -39,7 +39,7 @@ namespace KromicCommerce.Infrastructure.Sms;
 internal sealed class TwilioProvider(
     IOptions<TwilioOptions> options,
     IOptions<SmsOtpPolicyOptions> otpPolicy,
-    ISmsProviderSettings savedSettings,
+    SmsProviderSettingsSnapshot? saved,
     ISmsTemplateStore templates,
     IHttpClientFactory httpClientFactory,
     ILogger<TwilioProvider> logger) : ISmsProvider
@@ -53,26 +53,6 @@ internal sealed class TwilioProvider(
     public async Task<SmsSendResult> SendOtpAsync(
         string phoneNumber, string otp, CancellationToken cancellationToken = default)
     {
-        var saved = await savedSettings.GetEffectiveAsync(cancellationToken);
-        if (!SmsSettings.AppliesTo(saved, SmsProviderKind.Twilio))
-        {
-            // Another gateway is selected. Refuse rather than reaching for credentials that
-            // belong to a provider the store is no longer using.
-            logger.LogError(
-                "Twilio is the configured provider but {Provider} was selected by the administrator.",
-                saved.Provider.ToName());
-            return new SmsSendResult(false, null, "PROVIDER_NOT_SELECTED",
-                "A different SMS provider is currently selected.", false);
-        }
-
-        if (saved is { Enabled: false })
-        {
-            // The administrator switched SMS off. The factory only knows about the configured
-            // switch, so the saved selection is checked here.
-            return new SmsSendResult(false, null, "SMS_NOT_CONFIGURED",
-                "SMS delivery is switched off.", false);
-        }
-
         if (!TryToE164(phoneNumber, out var e164))
         {
             return new SmsSendResult(false, null, "INVALID_PHONE_NUMBER",

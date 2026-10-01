@@ -23,6 +23,10 @@ public sealed class SmsProviderConfig : AuditableEntity
     private SmsProviderConfig(
         bool enabled, SmsProviderKind provider, IReadOnlyDictionary<string, string> encryptedSettings)
     {
+        // The base Entity assigns a fresh Guid, but this table holds exactly one row and is
+        // looked up by SingletonId. Without this the row written here would carry a random key,
+        // the next save would not find it, and every save would insert another configuration.
+        Id = SingletonId;
         Enabled = enabled;
         Provider = provider.ToName();
         EncryptedSettings = Serialize(encryptedSettings);

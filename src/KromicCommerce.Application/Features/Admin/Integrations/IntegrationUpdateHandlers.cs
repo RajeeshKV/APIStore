@@ -283,9 +283,9 @@ internal sealed class UpdateSmsConfigHandler(
             config.Configure(cmd.Enabled, kind, protectedSettings);
         }
 
-        await db.SaveChangesAsync(ct);
-
-        // Audit only — the setting NAMES are recorded, never the values.
+        // Audit only — the setting NAMES are recorded, never the values. The raw
+        // ProviderSettings used to be serialised straight into this payload, writing live API
+        // keys and auth tokens into a table meant for audit records.
         db.OutboxEvents.Add(OutboxEvent.Create("SmsConfigurationUpdated",
             JsonSerializer.Serialize(new
             {
@@ -294,6 +294,11 @@ internal sealed class UpdateSmsConfigHandler(
                 SettingNames = protectedSettings.Keys.ToArray(),
                 ConfiguredAt = DateTime.UtcNow
             })));
+
+        // ONE SaveChanges, which EF wraps in a single implicit transaction. The configuration
+        // row and its audit event therefore commit together or not at all. Two calls would let
+        // the configuration commit while the event failed, leaving a change with no audit trail
+        // and no way to tell a partial write from a successful one.
         await db.SaveChangesAsync(ct);
 
         logger.LogInformation("SMS configuration saved. Provider: {Provider} Enabled: {Enabled}",
