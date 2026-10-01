@@ -9,6 +9,7 @@ global using KromicCommerce.Domain.Cart;
 global using KromicCommerce.Domain.Orders;
 global using KromicCommerce.Domain.Orders.Events;
 global using KromicCommerce.Domain.Outbox;
+global using KromicCommerce.Domain.Sms;
 global using KromicCommerce.Domain.Webhooks;
 global using Microsoft.EntityFrameworkCore;
 global using Microsoft.Extensions.Caching.Memory;

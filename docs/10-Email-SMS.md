@@ -44,18 +44,23 @@ Dynamic values:
 ## SMS
 Provider abstraction:
 ```text
-ISmsProvider
-  -> TechTo
-  -> SpringEdge
+ISmsProvider  (resolved via ISmsProviderFactory — one active at a time)
   -> 2Factor
+  -> Free2SMS
+  -> Twilio Verify
 ```
 
-Admin can select provider and configure credentials.
+Admin can select a provider and configure credentials. Message templates are managed in the
+database per provider and are optional. See `docs/28-SMS-Providers.md`.
+
+The application always generates and verifies the OTP itself; no adapter delegates code
+generation to the gateway, so expiry, attempt limits and cooldown behave identically whichever
+provider is active.
 
 SMS is primarily for OTP in V1.
 
 ## OTP controls
-- 6-digit default
+- 4-digit default
 - Configurable expiry
 - Resend cooldown
 - Attempt limit

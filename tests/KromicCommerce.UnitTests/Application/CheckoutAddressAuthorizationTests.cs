@@ -30,6 +30,8 @@ public sealed class CheckoutAddressAuthorizationTests
                 db.Object,
                 Mock.Of<ICatalogCacheService>(),
                 NullLogger<OrderInventoryRestorer>.Instance),
+            SmsTestDoubles.NotConfigured(),
+            SmsTestDoubles.Policy(),
             NullLogger<CheckoutHandler>.Instance);
 
         var result = await handler.Handle(

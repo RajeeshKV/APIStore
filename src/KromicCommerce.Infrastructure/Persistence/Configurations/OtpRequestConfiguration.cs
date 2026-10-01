@@ -18,6 +18,7 @@ internal sealed class OtpRequestConfiguration : IEntityTypeConfiguration<OtpRequ
         builder.Property(o => o.CreatedAt).IsRequired();
         builder.Property(o => o.ExpiresAt).IsRequired();
         builder.Property(o => o.Attempts).IsRequired().HasDefaultValue(0);
+        builder.Property(o => o.MaxAttempts).IsRequired().HasDefaultValue(OtpRequest.DefaultMaxAttempts);
 
         // Lookup: latest OTP for a phone+purpose combination
         builder.HasIndex(o => new { o.PhoneNumber, o.Purpose, o.CreatedAt })

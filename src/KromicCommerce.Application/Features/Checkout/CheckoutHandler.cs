@@ -1,7 +1,10 @@
 using System.Text.Json;
 using KromicCommerce.Application.Abstractions.Commerce;
+using KromicCommerce.Application.Abstractions.Sms;
+using KromicCommerce.Application.Options;
 using KromicCommerce.Application.Services;
 using KromicCommerce.Domain.Promotions;
+using Microsoft.Extensions.Options;
 
 namespace KromicCommerce.Application.Features.Checkout;
 
@@ -19,6 +22,8 @@ namespace KromicCommerce.Application.Features.Checkout;
 ///   5. Inventory reserved with xmin concurrency token (PostgreSQL row-level).
 ///   6. Promotion usage recorded at placement (COD) or after payment confirmation (Razorpay).
 ///   7. Order financial snapshot is immutable after creation.
+///   8. When SMS verification is required, the customer's phone must be verified and the
+///      delivery address must carry that same number — never trusted from the client.
 ///
 /// Pricing is not reimplemented here. The summary is recalculated inside this handler rather
 /// than reused from a previous request, so a cart, coupon or shipping configuration that
@@ -30,6 +35,8 @@ internal sealed class CheckoutHandler(
     ICheckoutSummaryService summaryService,
     IPaymentGateway paymentGateway,
     OrderInventoryRestorer inventoryRestorer,
+    ISmsProviderFactory smsProviderFactory,
+    IOptions<SmsPolicyOptions> smsPolicyOptions,
     ILogger<CheckoutHandler> logger)
     : ICommandHandler<CheckoutCommand, CheckoutResponse>
 {
@@ -74,6 +81,16 @@ internal sealed class CheckoutHandler(
         if (string.IsNullOrWhiteSpace(customerAddress.Phone))
             return Result.Failure<CheckoutResponse>(
                 Error.Validation("ADDRESS_PHONE_REQUIRED", "The selected address must include a phone number."));
+
+        // -----------------------------------------------------------------------
+        // Phone verification — enforced only while a provider is actually configured,
+        // because with SMS off no customer could ever satisfy the requirement.
+        // -----------------------------------------------------------------------
+        var verificationError = await EnforcePhoneVerificationAsync(
+            command.CustomerId, customerAddress.Phone, cancellationToken);
+
+        if (verificationError is not null)
+            return Result.Failure<CheckoutResponse>(verificationError);
 
         // -----------------------------------------------------------------------
         // Authoritative pricing — one engine, recalculated here.
@@ -408,6 +425,49 @@ internal sealed class CheckoutHandler(
                 i.ProductId == line.ProductId && i.VariantId == line.VariantId);
             inventory?.Release(line.Quantity);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Phone verification gate
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Rejects checkout when SMS verification is in force but the customer has not satisfied it.
+    /// Returns null when checkout may proceed.
+    /// </summary>
+    private async Task<Error?> EnforcePhoneVerificationAsync(
+        Guid customerId, string? addressPhone, CancellationToken ct)
+    {
+        var required = smsPolicyOptions.Value.RequireVerifiedPhoneAtCheckout
+                       && smsProviderFactory.Status.IsConfigured;
+
+        if (!required)
+            return null;
+
+        var user = await db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == customerId, ct);
+
+        if (user is null)
+            return Error.NotFound("USER_NOT_FOUND", "User not found.");
+
+        var verifiedPhone = SmsPhoneNumber.TryToE164(user.PhoneNumber);
+
+        if (!user.PhoneNumberVerified || verifiedPhone is null)
+        {
+            return Error.Validation("PHONE_VERIFICATION_REQUIRED",
+                "Verify your mobile number before placing an order.");
+        }
+
+        // The delivery contact must be the number we actually verified. Without this a
+        // customer could pass the gate with a verified number and ship to another one.
+        if (!SmsPhoneNumber.AreEquivalent(addressPhone, verifiedPhone))
+        {
+            return Error.Validation("ADDRESS_PHONE_MISMATCH",
+                "The delivery phone number must match your verified mobile number.");
+        }
+
+        return null;
     }
 
     // -----------------------------------------------------------------------

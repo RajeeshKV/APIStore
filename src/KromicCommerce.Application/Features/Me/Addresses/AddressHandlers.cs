@@ -46,6 +46,8 @@ internal sealed class CreateCustomerAddressHandler(IApplicationDbContext db)
     public async Task<Result<CustomerAddressResponse>> Handle(
         CreateCustomerAddressCommand cmd, CancellationToken ct)
     {
+        var phone = await ResolvePhoneAsync(cmd.CustomerId, cmd.Phone, ct);
+
         // If this address should be the default, clear existing default first
         if (cmd.IsDefault)
         {
@@ -58,13 +60,42 @@ internal sealed class CreateCustomerAddressHandler(IApplicationDbContext db)
         var address = CustomerAddress.Create(
             cmd.CustomerId, cmd.Label, cmd.FirstName, cmd.LastName,
             cmd.Company, cmd.AddressLine1, cmd.AddressLine2,
-            cmd.City, cmd.State, cmd.PostalCode, cmd.CountryCode, cmd.Phone);
+            cmd.City, cmd.State, cmd.PostalCode, cmd.CountryCode, phone);
 
         if (cmd.IsDefault) address.SetAsDefault();
 
         db.CustomerAddresses.Add(address);
         await db.SaveChangesAsync(ct);
         return Result.Success(AddressMapper.Map(address));
+    }
+
+    /// <summary>
+    /// Fills in the delivery phone from the customer's verified account number when the
+    /// request omits one.
+    ///
+    /// <para>
+    /// This is the backend half of "new address auto-populates the phone": a client that
+    /// pre-fills the form and a client that does not both end up with the same address.
+    /// </para>
+    ///
+    /// <para>
+    /// Only a <em>verified</em> number is used as the default. Falling back to an unverified
+    /// self-declared number would let checkout's verification requirement be satisfied by a
+    /// value the customer never proved they own.
+    /// </para>
+    /// </summary>
+    private async Task<string?> ResolvePhoneAsync(Guid customerId, string? requested, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(requested))
+            return requested.Trim();
+
+        var verifiedPhone = await db.Users
+            .AsNoTracking()
+            .Where(u => u.Id == customerId && u.PhoneNumberVerified)
+            .Select(u => u.PhoneNumber)
+            .FirstOrDefaultAsync(ct);
+
+        return string.IsNullOrWhiteSpace(verifiedPhone) ? null : verifiedPhone;
     }
 }
 

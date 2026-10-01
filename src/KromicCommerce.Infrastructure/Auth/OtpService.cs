@@ -1,20 +1,28 @@
 using System.Security.Cryptography;
 using System.Text;
 using KromicCommerce.Application.Abstractions.Auth;
+using KromicCommerce.Application.Options;
 
 namespace KromicCommerce.Infrastructure.Auth;
 
 internal sealed class OtpService : IOtpService
 {
-    public string GenerateOtp(int length = 6)
+    public string GenerateOtp(int length = SmsOtpDefaults.Length)
     {
-        if (length is < 4 or > 8)
-            throw new ArgumentOutOfRangeException(nameof(length), "OTP length must be between 4 and 8.");
+        if (length is < SmsOtpDefaults.MinLength or > SmsOtpDefaults.MaxLength)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(length),
+                $"OTP length must be between {SmsOtpDefaults.MinLength} and {SmsOtpDefaults.MaxLength}.");
+        }
 
-        // Cryptographically secure uniform random digits
-        var max = (int)Math.Pow(10, length);
-        var otp = RandomNumberGenerator.GetInt32(0, max);
-        return otp.ToString().PadLeft(length, '0');
+        // One cryptographically secure draw per digit. This stays uniform for every supported
+        // length, unlike GetInt32(0, (int)Math.Pow(10, length)) which overflows past 9 digits.
+        return string.Create(length, 0, static (span, _) =>
+        {
+            for (var i = 0; i < span.Length; i++)
+                span[i] = (char)('0' + RandomNumberGenerator.GetInt32(0, 10));
+        });
     }
 
     public string HashOtp(string otp)

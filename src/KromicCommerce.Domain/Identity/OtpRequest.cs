@@ -9,15 +9,21 @@ public sealed class OtpRequest : Entity
 {
     private OtpRequest() { } // EF constructor
 
-    public const int MaxAttempts = 5;
+    /// <summary>Default attempt ceiling when the caller does not supply one.</summary>
+    public const int DefaultMaxAttempts = 5;
 
     public static OtpRequest Create(
         string phoneNumber,
         string otpHash,
         OtpPurpose purpose,
         DateTime expiresAt,
-        Guid? userId = null)
-        => new()
+        Guid? userId = null,
+        int maxAttempts = DefaultMaxAttempts)
+    {
+        if (maxAttempts < 1)
+            throw new ArgumentOutOfRangeException(nameof(maxAttempts), "maxAttempts must be at least 1.");
+
+        return new()
         {
             PhoneNumber = phoneNumber.Trim(),
             OtpHash = otpHash,
@@ -25,8 +31,10 @@ public sealed class OtpRequest : Entity
             ExpiresAt = expiresAt,
             CreatedAt = DateTime.UtcNow,
             UserId = userId,
-            Attempts = 0
+            Attempts = 0,
+            MaxAttempts = maxAttempts
         };
+    }
 
     public string PhoneNumber { get; private set; } = string.Empty;
 
@@ -40,6 +48,12 @@ public sealed class OtpRequest : Entity
 
     /// <summary>Number of verification attempts made against this request.</summary>
     public int Attempts { get; private set; }
+
+    /// <summary>
+    /// Attempt ceiling captured when the code was issued, so a later configuration change
+    /// cannot retroactively loosen the limit on codes already in flight.
+    /// </summary>
+    public int MaxAttempts { get; private set; } = DefaultMaxAttempts;
 
     /// <summary>Associated user — null for pre-registration phone verification.</summary>
     public Guid? UserId { get; private set; }

@@ -3,6 +3,7 @@ using KromicCommerce.Domain.Cart;
 using KromicCommerce.Domain.Orders;
 using KromicCommerce.Domain.Outbox;
 using KromicCommerce.Domain.Promotions;
+using KromicCommerce.Domain.Sms;
 using KromicCommerce.Domain.Webhooks;
 using KromicCommerce.Infrastructure.Persistence.Converters;
 
@@ -32,6 +33,12 @@ public sealed class AppDbContext(
     // -----------------------------------------------------------------------
     public DbSet<BusinessSettings> BusinessSettings => Set<BusinessSettings>();
     public DbSet<StorePolicy> StorePolicies => Set<StorePolicy>();
+
+    // -----------------------------------------------------------------------
+    // SMS
+    // -----------------------------------------------------------------------
+    public DbSet<SmsTemplate> SmsTemplates => Set<SmsTemplate>();
+    public DbSet<SmsProviderConfig> SmsProviderConfigs => Set<SmsProviderConfig>();
 
     // -----------------------------------------------------------------------
     // Catalog

@@ -76,11 +76,26 @@ public sealed class BusinessSettingsOwnedValueObjectMutationTests
         settings.UpdateAuth(StoreAuthSettings.Create(
             googleOAuthEnabled: true, emailPasswordEnabled: false,
             mobileOtpEnabled: true, otpExpiryMinutes: 15,
-            otpResendCooldownSeconds: 30, otpMaxAttempts: 3, smsProvider: "Fast2SMS"));
+            otpResendCooldownSeconds: 30, otpMaxAttempts: 3, smsProvider: "Twilio"));
 
         settings.Auth.Should().BeSameAs(before);
         settings.Auth.GoogleOAuthEnabled.Should().BeTrue();
         settings.Auth.MobileOtpEnabled.Should().BeTrue();
+        settings.Auth.SmsProvider.Should().Be("Twilio");
+    }
+
+    [Fact]
+    public void UpdateAuth_refuses_a_provider_that_is_no_longer_supported()
+    {
+        var settings = BusinessSettings.CreateDefault("Kromic Store");
+
+        // A removed integration must not be storable — otherwise the admin surface keeps
+        // offering a gateway that can never send.
+        ((Action)(() => settings.UpdateAuth(StoreAuthSettings.Create(
+            googleOAuthEnabled: false, emailPasswordEnabled: true,
+            mobileOtpEnabled: true, otpExpiryMinutes: 10,
+            otpResendCooldownSeconds: 60, otpMaxAttempts: 5, smsProvider: "Fast2SMS"))))
+            .Should().Throw<ArgumentException>();
     }
 
     [Fact]

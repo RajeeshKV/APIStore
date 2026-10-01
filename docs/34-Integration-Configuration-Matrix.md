@@ -5,7 +5,7 @@
 | Google OAuth | IIdentityProvider | Google | Yes/enable | Yes | No | No |
 | Payments | IPaymentProvider | Razorpay | V1: Razorpay | Yes | Yes | Yes |
 | Email | IEmailProvider | Brevo | Managed/customer mode | Yes | No | Yes |
-| SMS | ISmsProvider | Configured provider | Yes | Yes | Usually no | Optional |
+| SMS | ISmsProvider (via ISmsProviderFactory) | 2Factor \| Free2SMS \| Twilio | Yes | Yes | Usually no | Optional |
 | Tracking | ITrackingProvider | Configured provider | Yes | Maybe | If supported | Yes |
 | Storage | IStorageProvider | Cloudinary | No in V1 | Yes | No | No |
 | Real-time | SignalR | SignalR | No | No | No | Yes |

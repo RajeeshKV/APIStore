@@ -65,14 +65,6 @@ public sealed class BrevoStatusOptions
     public bool IsConfigured => Enabled && HasApiKey;
 }
 
-public sealed class SmsStatusOptions
-{
-    public bool Enabled { get; set; }
-    public string Provider { get; set; } = string.Empty;
-    public bool HasProviderSettings { get; set; }
-    public bool IsConfigured => Enabled && !string.IsNullOrWhiteSpace(Provider);
-}
-
 /// <summary>
 /// Application-side view of tracking/analytics configuration.
 /// Bridged from Infrastructure TrackingOptions by InfrastructureServiceExtensions.

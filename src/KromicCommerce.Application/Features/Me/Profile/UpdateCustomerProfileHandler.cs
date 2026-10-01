@@ -1,6 +1,11 @@
+using Microsoft.Extensions.Options;
+using KromicCommerce.Application.Options;
+
 namespace KromicCommerce.Application.Features.Me.Profile;
 
-internal sealed class UpdateCustomerProfileHandler(IApplicationDbContext db)
+internal sealed class UpdateCustomerProfileHandler(
+    IApplicationDbContext db,
+    IOptions<SmsPolicyOptions> smsPolicyOptions)
     : ICommandHandler<UpdateCustomerProfileCommand, CustomerProfileResponse>
 {
     public async Task<Result<CustomerProfileResponse>> Handle(
@@ -27,13 +32,26 @@ internal sealed class UpdateCustomerProfileHandler(IApplicationDbContext db)
             command.NewsletterConsent,
             command.PreferredTimeZoneId);
 
+        // The account phone on User is the only phone the rest of the system trusts — checkout,
+        // verification status, and address auto-fill all read it. The profile column is kept
+        // in sync for backward compatibility but is never read back as the contact number.
+        if (!string.IsNullOrWhiteSpace(command.PhoneNumber))
+        {
+            var canonical = SmsPhoneNumber.TryToE164(command.PhoneNumber) ?? command.PhoneNumber.Trim();
+
+            // A self-declared number is never verified on the way in. With SMS configured the
+            // customer must prove control; with SMS off the number is still accepted and used
+            // for contact, it just cannot satisfy a checkout verification requirement.
+            user.SetPhoneNumber(canonical, verified: false);
+        }
+
         await db.SaveChangesAsync(ct);
 
         return Result.Success(new CustomerProfileResponse(
             user.Id, user.Email,
             user.FirstName, user.LastName,
             profile.DisplayName,
-            profile.PhoneNumber ?? user.PhoneNumber,
+            user.PhoneNumber,
             user.PhoneNumberVerified,
             profile.AvatarUrl,
             profile.DateOfBirth,

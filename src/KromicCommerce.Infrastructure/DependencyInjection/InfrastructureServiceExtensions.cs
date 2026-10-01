@@ -132,13 +132,6 @@ public static class InfrastructureServiceExtensions
             s.SenderName = o.Value.SenderName;
         });
 
-        services.AddOptions<SmsStatusOptions>().Configure<IOptions<SmsOptions>>((s, o) =>
-        {
-            s.Enabled = o.Value.Enabled;
-            s.Provider = o.Value.Provider;
-            s.HasProviderSettings = o.Value.ProviderSettings.Any();
-        });
-
         // Bridge TrackingOptions → Application TrackingPublicOptions (browser-safe IDs only)
         services.AddOptions<TrackingPublicOptions>().Configure<IOptions<TrackingOptions>>((t, o) =>
         {
@@ -288,33 +281,45 @@ public static class InfrastructureServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        services.AddHttpClient("Fast2SMS");
+        // SMS is customer-configurable and must never block startup, so nothing here uses
+        // ValidateOnStart — an incomplete configuration is reported through
+        // ISmsProviderFactory.Status instead of crashing the host.
+        services.AddOptions<SmsOptions>().Bind(configuration.GetSection(SmsOptions.SectionName));
+        services.AddOptions<SmsOtpPolicyOptions>()
+            .Bind(configuration.GetSection($"{SmsOptions.SectionName}:{nameof(SmsOptions.Otp)}"));
 
-        // Provider selection — check enabled + configured before resolving
-        var smsOpts = configuration.GetSection(SmsOptions.SectionName).Get<SmsOptions>() ?? new SmsOptions();
+        var section = configuration.GetSection(SmsOptions.SectionName);
+        services.AddOptions<TwoFactorOptions>().Bind(section.GetSection(nameof(SmsOptions.TwoFactor)));
+        services.AddOptions<Free2SmsOptions>().Bind(section.GetSection(nameof(SmsOptions.Free2Sms)));
+        services.AddOptions<TwilioOptions>().Bind(section.GetSection(nameof(SmsOptions.Twilio)));
 
-        if (smsOpts.IsConfigured)
+        // Per-provider timeouts. An OTP is useless if it arrives minutes late, so the
+        // gateway budget is deliberately short.
+        AddSmsHttpClient(services, TwoFactorProvider.HttpClientName);
+        AddSmsHttpClient(services, Free2SmsProvider.HttpClientName);
+        AddSmsHttpClient(services, TwilioProvider.HttpClientName);
+
+        // Scoped, not singleton: the adapters look up their message template and the
+        // administrator's saved credentials per send.
+        services.AddScoped<ISmsTemplateStore, EfSmsTemplateStore>();
+        services.AddScoped<ISmsProviderSettings, DbSmsProviderSettings>();
+        services.AddScoped<ISmsProviderFactory, SmsProviderFactory>();
+
+        // Bridge SMS policy → Application SmsPolicyOptions (policy values only, no credentials)
+        services.AddOptions<SmsPolicyOptions>().Configure<IOptions<SmsOptions>>((s, o) =>
         {
-            services.AddScoped<ISmsProvider>(_ =>
-            {
-                return smsOpts.Provider.ToUpperInvariant() switch
-                {
-                    "FAST2SMS" => new Fast2SmsProvider(
-                        _.GetRequiredService<IOptions<SmsOptions>>(),
-                        _.GetRequiredService<IHttpClientFactory>(),
-                        _.GetRequiredService<ILogger<Fast2SmsProvider>>()),
-                    _ => throw new InvalidOperationException($"Unknown SMS provider: {smsOpts.Provider}")
-                };
-            });
-        }
-        else
-        {
-            // Register a no-op provider so ISmsProvider can be injected without throwing
-            services.AddScoped<ISmsProvider, NoOpSmsProvider>();
-        }
+            s.ExpiryMinutes = o.Value.Otp.ClampedExpiryMinutes;
+            s.ResendCooldownSeconds = o.Value.Otp.ClampedResendCooldownSeconds;
+            s.MaxAttempts = o.Value.Otp.ClampedMaxAttempts;
+            s.Length = o.Value.Otp.ClampedLength;
+            s.RequireVerifiedPhoneAtCheckout = o.Value.RequireVerifiedPhoneAtCheckout;
+        });
 
         return services;
     }
+
+    private static void AddSmsHttpClient(IServiceCollection services, string name)
+        => services.AddHttpClient(name, client => client.Timeout = TimeSpan.FromSeconds(15));
 
     // -------------------------------------------------------------------------
     // Store services

@@ -10,6 +10,8 @@ internal sealed class VerifyOtpValidator : AbstractValidator<VerifyOtpCommand>
 
         RuleFor(x => x.SubmittedOtp)
             .NotEmpty()
-            .Matches(@"^\d{4,8}$").WithMessage("OTP must be 4-8 digits.");
+            .Matches($@"^\d{{{SmsOtpDefaults.MinLength},{SmsOtpDefaults.MaxLength}}}$")
+            .WithMessage(
+                $"OTP must be {SmsOtpDefaults.MinLength}-{SmsOtpDefaults.MaxLength} digits.");
     }
 }

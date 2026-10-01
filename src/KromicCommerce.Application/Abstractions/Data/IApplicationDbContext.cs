@@ -5,6 +5,7 @@ using KromicCommerce.Domain.Identity;
 using KromicCommerce.Domain.Orders;
 using KromicCommerce.Domain.Outbox;
 using KromicCommerce.Domain.Promotions;
+using KromicCommerce.Domain.Sms;
 using KromicCommerce.Domain.Store;
 using KromicCommerce.Domain.Webhooks;
 using Microsoft.EntityFrameworkCore;
@@ -33,6 +34,12 @@ public interface IApplicationDbContext
     // -----------------------------------------------------------------------
     DbSet<BusinessSettings> BusinessSettings { get; }
     DbSet<StorePolicy> StorePolicies { get; }
+
+    // -----------------------------------------------------------------------
+    // SMS
+    // -----------------------------------------------------------------------
+    DbSet<SmsTemplate> SmsTemplates { get; }
+    DbSet<SmsProviderConfig> SmsProviderConfigs { get; }
 
     // -----------------------------------------------------------------------
     // Catalog

@@ -1,0 +1,42 @@
+namespace KromicCommerce.Infrastructure.Configuration;
+
+/// <summary>
+/// Twilio Verify credentials.
+/// </summary>
+/// <remarks>
+/// Reference: https://www.twilio.com/docs/verify/api/verification
+/// <code>
+/// POST {BaseUrl}/Services/{ServiceSid}/Verifications
+/// Authorization: Basic base64(AccountSid:AuthToken)
+/// Content-Type: application/x-www-form-urlencoded
+///
+///   To={E164}            required
+///   Channel=sms          required
+///   CustomCode={OTP}     optional — we always send it, see remarks
+///   TemplateSid={HJ...}  optional, only when a Verify template is used
+///   TemplateCustomSubstitutions={JSON}  optional, accompanies TemplateSid
+/// </code>
+/// </remarks>
+public sealed class TwilioOptions
+{
+    /// <summary>Account SID (AC…). Public identifier; safe to display.</summary>
+    public string AccountSid { get; init; } = string.Empty;
+
+    /// <summary>
+    /// API/Auth token. Sent as the HTTP Basic password and grants full account access, so it is
+    /// never logged and never returned by the status endpoints.
+    /// </summary>
+    public string AuthToken { get; init; } = string.Empty;
+
+    /// <summary>Verify Service SID (VA…). Which pre-approved message set is used.</summary>
+    public string ServiceSid { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Optional Messaging Service SID (MG…) used to route the SMS to a real sender number.
+    /// Twilio requires either this or a messaging template; without one the send is rejected.
+    /// </summary>
+    public string? MessagingServiceSid { get; init; } = null;
+
+    /// <summary>API root. Override for a proxy or a regional edge; the default is the documented host.</summary>
+    public string BaseUrl { get; init; } = "https://verify.twilio.com";
+}

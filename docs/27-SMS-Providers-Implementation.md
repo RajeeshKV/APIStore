@@ -1,5 +1,9 @@
 # SMS Provider Implementations
 
+> Implemented. See [28-SMS-Providers.md](28-SMS-Providers.md) for the implemented providers,
+> their verified contracts, and the configuration module. This document is the original
+> implementation contract and is kept for history.
+
 This file is the implementation contract for concrete SMS providers. Provider availability, pricing, API endpoints, SDK behavior, free credits, and DLT requirements must be verified against the provider's current official documentation before implementation.
 
 ## Provider slots

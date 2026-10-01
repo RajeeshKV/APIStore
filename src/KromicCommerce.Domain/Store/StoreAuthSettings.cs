@@ -1,3 +1,5 @@
+using KromicCommerce.Domain.Sms;
+
 namespace KromicCommerce.Domain.Store;
 
 /// <summary>
@@ -18,7 +20,7 @@ public sealed class StoreAuthSettings : ValueObject
         OtpExpiryMinutes = 10,
         OtpResendCooldownSeconds = 60,
         OtpMaxAttempts = 5,
-        SmsProvider = "Fast2SMS",
+        SmsProvider = "None",
         GoogleClientId = null,
         EncryptedGoogleClientSecret = null,
         GoogleRedirectUri = null
@@ -37,8 +39,17 @@ public sealed class StoreAuthSettings : ValueObject
     /// <summary>Maximum verification attempts before an OTP is invalidated. Default: 5.</summary>
     public int OtpMaxAttempts { get; private set; }
 
-    /// <summary>Active SMS provider name key. E.g. "Fast2SMS", "Twilio".</summary>
-    public string SmsProvider { get; private set; } = "Fast2SMS";
+    /// <summary>
+    /// Active SMS provider name, as recorded by the administrator.
+    /// One of <c>None</c>, <c>2Factor</c>, <c>Free2SMS</c>, <c>Twilio</c>.
+    /// </summary>
+    /// <remarks>
+    /// This records the store owner's choice for the admin surface. Delivery itself is driven by
+    /// the provider that is actually configured and credentialed — see the SMS integration
+    /// status endpoint, which reports that rather than this field, so the two cannot silently
+    /// disagree about what is live.
+    /// </remarks>
+    public string SmsProvider { get; private set; } = "None";
 
     // -----------------------------------------------------------------------
     // Google OAuth credentials — stored in DB, not environment variables.
@@ -93,6 +104,15 @@ public sealed class StoreAuthSettings : ValueObject
             throw new ArgumentException("OTP max attempts must be at least 1.", nameof(otpMaxAttempts));
         if (string.IsNullOrWhiteSpace(smsProvider))
             throw new ArgumentException("SMS provider must not be empty.", nameof(smsProvider));
+        if (SmsProviderKinds.Parse(smsProvider) is null)
+        {
+            // Restricted to the supported gateways, so a removed integration cannot be selected
+            // and stored as if it were live.
+            throw new ArgumentException(
+                $"'{smsProvider}' is not a supported SMS provider. Choose one of: " +
+                $"{string.Join(", ", SmsProviderKinds.Selectable.Select(p => p.ToName()))}.",
+                nameof(smsProvider));
+        }
 
         return new StoreAuthSettings
         {

@@ -19,7 +19,9 @@ internal sealed class GetCustomerProfileHandler(IApplicationDbContext db)
             user.Id, user.Email,
             user.FirstName, user.LastName,
             profile?.DisplayName,
-            profile?.PhoneNumber ?? user.PhoneNumber,
+            // Always the account phone on User. Reading profile.PhoneNumber here would let a
+            // self-declared, unverified number masquerade as the account's contact number.
+            user.PhoneNumber,
             user.PhoneNumberVerified,
             profile?.AvatarUrl,
             profile?.DateOfBirth,

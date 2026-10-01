@@ -26,7 +26,7 @@ public sealed class OtpRequestTests
     public void Exhausted_after_max_attempts()
     {
         var otp = CreateFresh();
-        for (var i = 0; i < OtpRequest.MaxAttempts - 1; i++)
+        for (var i = 0; i < otp.MaxAttempts - 1; i++)
             otp.RecordAttempt();
 
         otp.IsExhausted.Should().BeFalse();
@@ -36,6 +36,31 @@ public sealed class OtpRequestTests
         exhausted.Should().BeTrue();
         otp.IsExhausted.Should().BeTrue();
         otp.CanAttempt().Should().BeFalse();
+    }
+
+    [Fact]
+    public void Custom_max_attempts_is_captured_on_the_request()
+    {
+        var otp = OtpRequest.Create("+919876543210", "hash", OtpPurpose.Login,
+            DateTime.UtcNow.AddMinutes(10), userId: null, maxAttempts: 3);
+
+        otp.MaxAttempts.Should().Be(3);
+
+        otp.RecordAttempt();
+        otp.RecordAttempt();
+        otp.IsExhausted.Should().BeFalse();
+
+        otp.RecordAttempt();
+        otp.IsExhausted.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Create_rejects_a_non_positive_attempt_ceiling()
+    {
+        var act = () => OtpRequest.Create("+919876543210", "hash", OtpPurpose.Login,
+            DateTime.UtcNow.AddMinutes(10), userId: null, maxAttempts: 0);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
     }
 
     [Fact]

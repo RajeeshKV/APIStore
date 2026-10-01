@@ -78,23 +78,67 @@ internal sealed class GetEmailIntegrationStatusHandler(
     }
 }
 
-internal sealed class GetSmsIntegrationStatusHandler(IOptions<SmsStatusOptions> opts)
+/// <summary>
+/// Reports the provider that is actually live, plus the selection the administrator has saved.
+///
+/// <para>
+/// The two are reported separately on purpose. The factory decides what delivers an OTP from
+/// the configured provider and its credentials, while the admin screen's saved choice is a
+/// separate record. Collapsing them into one field would let the screen show "Twilio" while
+/// Free2SMS is what actually sends, and an administrator debugging a failed send would be
+/// looking at the wrong gateway.
+/// </para>
+/// </summary>
+internal sealed class GetSmsIntegrationStatusHandler(
+    ISmsProviderFactory smsFactory,
+    ISmsProviderSettings savedSettings)
     : IQueryHandler<GetSmsIntegrationStatusQuery, IntegrationStatusResponse>
 {
-    public Task<Result<IntegrationStatusResponse>> Handle(
+    public async Task<Result<IntegrationStatusResponse>> Handle(
         GetSmsIntegrationStatusQuery query, CancellationToken ct)
     {
-        var o = opts.Value;
-        var publicFields = string.IsNullOrWhiteSpace(o.Provider)
-            ? null
-            : new Dictionary<string, string> { ["provider"] = o.Provider };
+        var status = smsFactory.Status;
+        var saved = await savedSettings.GetEffectiveAsync(ct);
 
-        var status = new IntegrationStatusResponse(
-            "SMS", o.Enabled, o.IsConfigured, null,
-            HasSecret: o.HasProviderSettings,
+        // Missing settings are configuration key names, never values — safe to surface and
+        // actionable for whoever is setting the provider up.
+        var publicFields = new Dictionary<string, string>
+        {
+            ["provider"] = status.Provider.ToName(),
+            ["requireVerifiedPhoneAtCheckout"] = status.RequiresVerification.ToString(),
+            ["selectableProviders"] = string.Join(", ",
+                SmsProviderKinds.Selectable.Select(p => p.ToName()))
+        };
+
+        if (status.MissingSettings.Count > 0)
+            publicFields["missingSettings"] = string.Join(", ", status.MissingSettings);
+
+        if (saved is not null)
+        {
+            publicFields["selectedProvider"] = saved.Provider.ToName();
+            publicFields["selectedProviderEnabled"] = saved.Enabled.ToString();
+
+            if (saved.Settings.Count > 0)
+            {
+                publicFields["configuredSettings"] = string.Join(", ",
+                    saved.Settings.Keys.Order(StringComparer.OrdinalIgnoreCase));
+
+                if (saved.Provider != status.Provider)
+                {
+                    publicFields["warning"] =
+                        $"The administrator selected {saved.Provider.ToName()}, but the configured " +
+                        $"provider is {status.Provider.ToName()}. Delivery uses the configured " +
+                        "provider until Sms__Provider matches the selection.";
+                }
+            }
+        }
+
+        var result = new IntegrationStatusResponse(
+            "SMS", status.Enabled, status.IsConfigured, null,
+            HasSecret: status.IsConfigured,
             PublicFields: publicFields);
 
-        return Task.FromResult(Result.Success(status));
+        return Result.Success(result);
     }
 }
 

@@ -146,10 +146,22 @@ public sealed class User : AuditableEntity
             EmailVerifiedAt = DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// The single source of truth for this account's phone number.
+    ///
+    /// <para>
+    /// Changing the number always resets <see cref="PhoneNumberVerified"/>: verification is a
+    /// claim about a specific number, so it cannot survive a change to a different one.
+    /// Re-submitting the same number preserves an existing verification.
+    /// </para>
+    /// </summary>
     public void SetPhoneNumber(string phoneNumber, bool verified)
     {
-        PhoneNumber = phoneNumber.Trim();
-        PhoneNumberVerified = verified;
+        var normalized = phoneNumber.Trim();
+        var unchanged = string.Equals(PhoneNumber, normalized, StringComparison.Ordinal);
+
+        PhoneNumber = normalized;
+        PhoneNumberVerified = unchanged ? PhoneNumberVerified && verified : verified;
     }
 
     /// <summary>

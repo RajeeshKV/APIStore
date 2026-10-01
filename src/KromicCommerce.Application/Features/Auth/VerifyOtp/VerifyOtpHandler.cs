@@ -13,8 +13,14 @@ internal sealed class VerifyOtpHandler(
 
     public async Task<Result> Handle(VerifyOtpCommand command, CancellationToken cancellationToken)
     {
+        // Match on the canonical form, otherwise a code sent to "+91 98765 43210" can never be
+        // verified by a client that echoes back "9876543210".
+        if (SmsPhoneNumber.TryToE164(command.PhoneNumber) is not { } canonicalPhone)
+            return Result.Failure(Error.Validation("INVALID_PHONE_NUMBER",
+                "Enter a valid 10-digit mobile number."));
+
         var otpRequest = await db.OtpRequests
-            .Where(o => o.PhoneNumber == command.PhoneNumber
+            .Where(o => o.PhoneNumber == canonicalPhone
                      && o.Purpose == command.Purpose
                      && o.VerifiedAt == null)
             .OrderByDescending(o => o.CreatedAt)
@@ -33,7 +39,7 @@ internal sealed class VerifyOtpHandler(
             {
                 logger.LogWarning(
                     "OTP max attempts reached for phone ending ...{Suffix}",
-                    command.PhoneNumber.Length > 4 ? command.PhoneNumber[^4..] : "****");
+                    SmsPhoneNumber.Mask(canonicalPhone));
                 return Result.Failure(Error.Validation("OTP_MAX_ATTEMPTS", "Maximum verification attempts exceeded."));
             }
 
@@ -42,16 +48,22 @@ internal sealed class VerifyOtpHandler(
 
         otpRequest.MarkVerified();
 
-        // Mark user phone verified if applicable
-        if (command.UserId.HasValue && command.Purpose == OtpPurpose.PhoneVerification)
+        // A verified code is the single thing that promotes a phone to "verified", so the
+        // user update must happen here for every purpose that binds to a user — not only for
+        // PhoneVerification. Login and PasswordReset codes prove control of the number too.
+        if (command.UserId is { } userId)
         {
-            var user = await db.Users.FindAsync([command.UserId.Value], cancellationToken);
-            user?.SetPhoneNumber(command.PhoneNumber, verified: true);
+            var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
+            if (user is null)
+                return Result.Failure(Error.NotFound("USER_NOT_FOUND", "User not found."));
+
+            user.SetPhoneNumber(canonicalPhone, verified: true);
         }
 
         await db.SaveChangesAsync(cancellationToken);
 
-        logger.LogInformation("OTP verified for {Purpose}", command.Purpose);
+        logger.LogInformation("OTP verified for {Purpose} on phone ending ...{Suffix}",
+            command.Purpose, SmsPhoneNumber.Mask(canonicalPhone));
 
         return Result.Success();
     }
