@@ -43,6 +43,11 @@ Three things a client must internalise before designing screens:
 | `Login` | Step-up during a session. |
 | `PasswordReset` | Confirming the number during a reset. |
 
+Only `PhoneVerification` changes the account phone, and only when the code's number still matches
+the number being verified. A `Login` or `PasswordReset` code is spent and its own operation
+proceeds, but it never rewrites the profile phone — proving control of a number for one operation
+is not a decision to make it the account number.
+
 ---
 
 ## 2. User journey
@@ -177,6 +182,7 @@ All errors share one envelope (§4). Render inline, keep the customer's input, n
 | `OTP_MAX_ATTEMPTS` | 400 | Inline: "Too many incorrect attempts. Request a new code." Force the resend affordance, disable submit until a new code is sent. |
 | `INVALID_PHONE_NUMBER` | 400 | Field error on the phone box: "Enter a valid 10-digit mobile number." Return to State A. |
 | `OTP_COOLDOWN` | 409 | Neutral banner, not an error: "You can request another code shortly." Start/refresh the resend countdown. Also returned when a send is already in flight for this number and purpose, so treat it as the same "wait" outcome. |
+| `PHONE_VERIFICATION_NOT_PENDING` | 409 | Neutral banner: "This code is for a number you are no longer verifying. Request a new code." The customer changed the phone number again after this code was sent, so it is refused and no phone state moves. Send a fresh code for the number now pending. |
 | `OTP_SEND_FAILED` | 500 | Banner: "We couldn't send the code. Try again." Keep the resend button enabled — a send failure consumes no cooldown. |
 | `SMS_NOT_CONFIGURED` | 500 | Banner: "Verification codes are unavailable right now. Please contact support." Disable the flow. |
 | *(rate limited)* | 429 | Banner: "Too many attempts. Try again shortly." Disable both actions for the window. |
@@ -281,7 +287,7 @@ Status mapping:
 | `error.code` prefix / type | HTTP |
 | --- | --- |
 | `VALIDATION_PHONENUMBER`, `VALIDATION_SUBMITTEDOTP`, `OTP_INVALID`, `OTP_MAX_ATTEMPTS`, `INVALID_PHONE_NUMBER` | 400 |
-| `OTP_COOLDOWN` | 409 |
+| `OTP_COOLDOWN`, `PHONE_VERIFICATION_NOT_PENDING` | 409 |
 | rate limit | 429 |
 | `SMS_NOT_CONFIGURED`, `OTP_SEND_FAILED` | 500 |
 | `USER_NOT_FOUND` (verification-status) | 404 |

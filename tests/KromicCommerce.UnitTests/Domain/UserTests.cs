@@ -72,18 +72,64 @@ public sealed class UserTests
     }
 
     [Fact]
-    public void Promoting_a_pending_number_makes_it_the_verified_one()
+    public void Proving_the_pending_number_promotes_it()
     {
         var user = User.CreateCustomer("a@b.com", null, "A", "B");
         user.SetPhoneNumber("+919876543210", verified: true);
         user.RequestPhoneNumberChange("+919999999999");
 
-        user.PromotePendingPhoneNumber("+919999999999");
+        user.TryCompletePhoneVerification("+919999999999").Should().BeTrue();
 
         user.PhoneNumber.Should().Be("+919999999999");
         user.PhoneNumberVerified.Should().BeTrue();
         // Exactly one number, never a lingering pending value to confuse a later read.
         user.PendingPhoneNumber.Should().BeNull();
+    }
+
+    [Fact]
+    public void Proving_a_number_that_is_no_longer_pending_changes_nothing()
+    {
+        // The regression this guards: the OTP for an abandoned change is still cryptographically
+        // valid, so without this check it would reinstate a number the customer moved on from and
+        // silently discard the one they are actually trying to verify.
+        var user = User.CreateCustomer("a@b.com", null, "A", "B");
+        user.SetPhoneNumber("+919876543210", verified: true);
+        user.RequestPhoneNumberChange("+918888888888");
+        user.RequestPhoneNumberChange("+917777777777");
+
+        user.TryCompletePhoneVerification("+918888888888").Should().BeFalse();
+
+        // The verified number survives, and the pending one is still the live request.
+        user.PhoneNumber.Should().Be("+919876543210");
+        user.PhoneNumberVerified.Should().BeTrue();
+        user.PendingPhoneNumber.Should().Be("+917777777777");
+    }
+
+    [Fact]
+    public void Proving_the_registration_number_verifies_it()
+    {
+        // Registration sets the phone directly with nothing pending, so that number is the one
+        // awaiting proof. Without this the very first verification could never complete.
+        var user = User.CreateCustomer("a@b.com", null, "A", "B");
+        user.SetPhoneNumber("+919876543210", verified: false);
+
+        user.TryCompletePhoneVerification("+919876543210").Should().BeTrue();
+
+        user.PhoneNumberVerified.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Proving_an_unrelated_number_cannot_overwrite_a_verified_one()
+    {
+        // No change was requested, so the only number awaiting proof is the verified one. A code
+        // for any other number must not be able to become the account phone.
+        var user = User.CreateCustomer("a@b.com", null, "A", "B");
+        user.SetPhoneNumber("+919876543210", verified: true);
+
+        user.TryCompletePhoneVerification("+918888888888").Should().BeFalse();
+
+        user.PhoneNumber.Should().Be("+919876543210");
+        user.PhoneNumberVerified.Should().BeTrue();
     }
 
     [Fact]

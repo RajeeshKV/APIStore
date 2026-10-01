@@ -22,7 +22,12 @@ namespace KromicCommerce.IntegrationTests.Sms;
 [Collection("Database")]
 public sealed class OtpResendRaceTests(DatabaseFixture db) : IntegrationTestBase(db)
 {
-    private const string PhoneNumber = "+919876543210";
+    /// <summary>
+    /// A number unique to one test. These tests share a real database, so a fixed number would
+    /// let one case's OTP row sit inside another's cooldown and make the assertions depend on
+    /// execution order.
+    /// </summary>
+    private static string UniquePhone() => $"+9198{Random.Shared.Next(10_000_000, 99_999_999)}";
 
     /// <summary>
     /// Concurrent resends are a normal customer behaviour, not an exotic one: a double tap on
@@ -34,6 +39,7 @@ public sealed class OtpResendRaceTests(DatabaseFixture db) : IntegrationTestBase
     [InlineData(6)]
     public async Task Simultaneous_resends_deliver_exactly_one_code(int concurrentRequests)
     {
+        var phone = UniquePhone();
         var provider = new CountingSmsProvider();
 
         // A separate context per request, because in production each request is served by its own
@@ -50,7 +56,7 @@ public sealed class OtpResendRaceTests(DatabaseFixture db) : IntegrationTestBase
                 NullLogger<SendOtpHandler>.Instance);
 
             return await handler.Handle(
-                new SendOtpCommand(PhoneNumber, OtpPurpose.PhoneVerification, Guid.NewGuid()),
+                new SendOtpCommand(phone, OtpPurpose.PhoneVerification, Guid.NewGuid()),
                 CancellationToken.None);
         })).ToArray();
 
@@ -64,14 +70,16 @@ public sealed class OtpResendRaceTests(DatabaseFixture db) : IntegrationTestBase
         // And exactly one code was persisted, so the cooldown and verification logic see one code.
         await using var verify = Db.CreateDbContext();
         var stored = await verify.OtpRequests
-            .Where(o => o.PhoneNumber == PhoneNumber)
+            .Where(o => o.PhoneNumber == phone)
             .ToListAsync();
         stored.Should().ContainSingle();
 
         // Losing the race is a cooldown, never a hard failure: the customer is told to wait, not
-        // that the code could not be sent.
+        // that the code could not be sent. Filtered on failure rather than by position, since the
+        // winning request finishes in whatever order the scheduler picks.
         results.Should().ContainSingle(r => r.IsSuccess);
-        results.Skip(1).Should().OnlyContain(r => r.Error.Code == "OTP_COOLDOWN");
+        results.Where(r => !r.IsSuccess)
+            .Should().OnlyContain(r => r.Error.Code == "OTP_COOLDOWN");
     }
 
     /// <summary>
@@ -82,19 +90,19 @@ public sealed class OtpResendRaceTests(DatabaseFixture db) : IntegrationTestBase
     [SkippableFact]
     public async Task A_claim_is_released_so_the_next_resend_proceeds()
     {
-        var provider = new CountingSmsProvider();
+        var phone = UniquePhone();
 
         await using (var first = Db.CreateDbContext())
         {
             await first.TryAcquireOtpSendClaimAsync(
-                PhoneNumber, OtpPurpose.PhoneVerification, DateTime.UtcNow.AddMinutes(-5));
+                phone, OtpPurpose.PhoneVerification, DateTime.UtcNow.AddMinutes(-5));
         }
 
         // While the claim is held, a second request is turned away.
         await using (var blocked = Db.CreateDbContext())
         {
             var acquired = await blocked.TryAcquireOtpSendClaimAsync(
-                PhoneNumber, OtpPurpose.PhoneVerification, DateTime.UtcNow.AddMinutes(-5));
+                phone, OtpPurpose.PhoneVerification, DateTime.UtcNow.AddMinutes(-5));
             acquired.Should().BeFalse();
         }
 
@@ -102,12 +110,12 @@ public sealed class OtpResendRaceTests(DatabaseFixture db) : IntegrationTestBase
         await using (var release = Db.CreateDbContext())
         {
             await release.ReleaseOtpSendClaimAsync(
-                PhoneNumber, OtpPurpose.PhoneVerification, CancellationToken.None);
+                phone, OtpPurpose.PhoneVerification, CancellationToken.None);
         }
 
         await using var next = Db.CreateDbContext();
         var reacquired = await next.TryAcquireOtpSendClaimAsync(
-            PhoneNumber, OtpPurpose.PhoneVerification, DateTime.UtcNow.AddMinutes(-5));
+            phone, OtpPurpose.PhoneVerification, DateTime.UtcNow.AddMinutes(-5));
         reacquired.Should().BeTrue();
     }
 
@@ -119,7 +127,7 @@ public sealed class OtpResendRaceTests(DatabaseFixture db) : IntegrationTestBase
     [SkippableFact]
     public async Task A_claim_abandoned_by_a_crash_is_reclaimed_once_stale()
     {
-        var phone = "+919876500001";
+        var phone = UniquePhone();
 
         await using (var crashed = Db.CreateDbContext())
         {
@@ -137,13 +145,27 @@ public sealed class OtpResendRaceTests(DatabaseFixture db) : IntegrationTestBase
                 .Should().BeFalse();
         }
 
+        // Age the abandoned claim past the staleness window. Staleness is decided by comparing the
+        // claim's own timestamp against the caller's threshold, so the row has to be the thing that
+        // moves — passing an old threshold alone would only move the boundary, not the claim.
+        await using (var age = Db.CreateDbContext())
+        {
+            await age.Database.ExecuteSqlRawAsync(
+                """
+                UPDATE otp_send_claims
+                SET "CreatedAt" = now() - interval '1 hour'
+                WHERE "PhoneNumber" = {0} AND "Purpose" = {1}
+                """,
+                phone, OtpPurpose.PhoneVerification.ToString());
+        }
+
         // Past the window, a claim nobody will ever release stops blocking.
         await using (var later = Db.CreateDbContext())
         {
             (await later.TryAcquireOtpSendClaimAsync(
                 phone,
                 OtpPurpose.PhoneVerification,
-                DateTime.UtcNow.AddHours(-1)))
+                DateTime.UtcNow.AddMinutes(-5)))
                 .Should().BeTrue();
         }
     }
@@ -152,7 +174,7 @@ public sealed class OtpResendRaceTests(DatabaseFixture db) : IntegrationTestBase
     [SkippableFact]
     public async Task Claims_are_scoped_per_purpose()
     {
-        var phone = "+919876500002";
+        var phone = UniquePhone();
 
         await using var ctx = Db.CreateDbContext();
         (await ctx.TryAcquireOtpSendClaimAsync(

@@ -32,6 +32,14 @@ public interface ICatalogCacheService
     void InvalidateStorefrontProduct(string slug);
     void InvalidateStorefrontFeatured();
 
+    /// <summary>
+    /// Invalidates the public Home page carousel.
+    /// Call after any carousel create, update, delete, image change, or enable/disable: the
+    /// storefront projection embeds visibility, ordering and the image, so all of those changes
+    /// alter what the next public read should return.
+    /// </summary>
+    void InvalidateCarousel();
+
     // -----------------------------------------------------------------------
     // Dependency-aware (graph) invalidation
     // -----------------------------------------------------------------------

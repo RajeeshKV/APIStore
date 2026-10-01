@@ -31,6 +31,12 @@ public static class CatalogCacheKeys
     public const string StorefrontFeaturedPrefix = "storefront:products:featured";
 
     /// <summary>
+    /// Public Home page carousel. One key: the storefront asks for every visible slide in one
+    /// call, so there is no query parameter to encode.
+    /// </summary>
+    public const string StorefrontCarousel = "storefront:carousel:all";
+
+    /// <summary>
     /// Featured-products key. The limit is part of the key because it is baked into the
     /// cached result; without it a limit=4 request would satisfy a later limit=50 request.
     /// <see cref="ICatalogCacheService.InvalidateStorefrontFeatured"/> evicts every limit.

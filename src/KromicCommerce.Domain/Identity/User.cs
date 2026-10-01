@@ -196,7 +196,7 @@ public sealed class User : AuditableEntity
 
     /// <summary>
     /// Records a number the customer wants to use, without disturbing the current verified
-    /// number. The change takes effect only through <see cref="PromotePendingPhoneNumber"/>.
+    /// number. The change takes effect only through <see cref="TryCompletePhoneVerification"/>.
     /// </summary>
     public void RequestPhoneNumberChange(string phoneNumber)
     {
@@ -215,14 +215,43 @@ public sealed class User : AuditableEntity
     }
 
     /// <summary>
-    /// Promotes the pending number to the verified account number. Called only once an OTP sent
-    /// to <paramref name="verifiedPhone"/> has been accepted.
+    /// The number this account is currently trying to prove: <see cref="PendingPhoneNumber"/> when a
+    /// change is in progress, otherwise <see cref="PhoneNumber"/> itself.
     /// </summary>
-    public void PromotePendingPhoneNumber(string verifiedPhone)
+    /// <remarks>
+    /// The fallback matters for first-time verification. Registration sets the phone directly and
+    /// leaves it unverified with nothing pending, so that number is the one awaiting proof. Without
+    /// the fallback such an account could never satisfy a <c>PhoneVerification</c> code.
+    /// </remarks>
+    private string? PhoneNumberAwaitingVerification => PendingPhoneNumber ?? PhoneNumber;
+
+    /// <summary>
+    /// Completes verification when <paramref name="canonicalPhone"/> is the number currently being
+    /// verified. Returns false — changing nothing — when it is not, which is how a stale OTP is
+    /// refused without disturbing the account.
+    /// </summary>
+    /// <remarks>
+    /// The comparison is the only thing standing between an abandoned change and a takeover: a code
+    /// sent to a number the customer has since moved on from must not be able to reinstate it. The
+    /// caller must pass the canonical (E.164) form, which is also how <see cref="PendingPhoneNumber"/>
+    /// and <see cref="PhoneNumber"/> are stored, so the comparison is like-for-like.
+    /// <para>
+    /// This replaces an unguarded <c>PromotePendingPhoneNumber</c>. Promotion is only correct when
+    /// the proven number is the expected one, and a method that always promoted made that invariant
+    /// a caller obligation that nothing enforced.
+    /// </para>
+    /// </remarks>
+    public bool TryCompletePhoneVerification(string canonicalPhone)
     {
-        PhoneNumber = verifiedPhone.Trim();
+        var proven = canonicalPhone.Trim();
+
+        if (!string.Equals(PhoneNumberAwaitingVerification?.Trim(), proven, StringComparison.Ordinal))
+            return false;
+
+        PhoneNumber = proven;
         PhoneNumberVerified = true;
         PendingPhoneNumber = null;
+        return true;
     }
 
     /// <summary>

@@ -227,6 +227,65 @@ Policy types: `TermsConditions`, `PrivacyPolicy`, `RefundPolicy`, `CancellationP
 
 ---
 
+## Carousel — Home page
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| GET | `/api/v1/store/carousel` | None | Public carousel: active slides only, ordered |
+| GET | `/api/v1/admin/carousel` | Admin | All slides including inactive. `?activeOnly=true` filters |
+| GET | `/api/v1/admin/carousel/{id}` | Admin | One slide (admin view) |
+| POST | `/api/v1/admin/carousel` | Admin | Create slide |
+| PUT | `/api/v1/admin/carousel/{id}` | Admin | Update slide |
+| DELETE | `/api/v1/admin/carousel/{id}` | Admin | Delete slide |
+| PUT | `/api/v1/admin/carousel/{id}/image` | Admin | Upload or replace the slide image |
+| DELETE | `/api/v1/admin/carousel/{id}/image` | Admin | Remove the slide image |
+
+The image is uploaded separately, after creation, exactly as for categories and brands. A slide
+with no image is a half-finished draft and is **not** returned by the public endpoint.
+
+Accepted image types: JPEG, PNG, WebP, GIF, AVIF. Maximum 10 MB. Uploads go to Cloudinary under
+the `carousel/{id}` folder; the returned `publicId` and `secureUrl` are stored on the slide.
+
+### Requests
+
+`POST /api/v1/admin/carousel`
+
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| `title` | string | Yes | 1–200 characters |
+| `subtitle` | string \| null | No | ≤ 500 characters |
+| `ctaText` | string \| null | No | ≤ 50 characters. A label such as "Shop Now", not a link |
+| `sortOrder` | int | No (default `0`) | ≥ 0. Lower sorts first |
+| `isActive` | bool | No (default `false`) | Whether the storefront shows the slide |
+
+`PUT /api/v1/admin/carousel/{id}` takes the same fields, all required on update.
+
+### Public response
+
+`GET /api/v1/store/carousel` returns an array (empty when nothing is configured — never a 404):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | guid | Slide id |
+| `title` | string | Headline |
+| `subtitle` | string \| null | Supporting copy |
+| `imageUrl` | string | Cloudinary secure URL of the hero image |
+| `ctaText` | string \| null | CTA button label, or `null` to render no button |
+| `sortOrder` | int | Display position |
+| `ctaTarget` | string | Always `"/shop"` |
+
+The public response deliberately omits the Cloudinary `publicId`, the `isActive` flag, and the
+`createdAtUtc`/`updatedAtUtc` audit fields.
+
+**CTA destination is fixed.** `ctaTarget` is a constant, not per-slide configuration, and there is
+no URL field anywhere in the request or response models — a slide cannot be pointed at an arbitrary
+site. The storefront should navigate to `ctaTarget`.
+
+Only active slides that have an image are returned. Ordering is `sortOrder` ascending, then creation
+time, then id, so slides sharing a display order always come back in the same sequence.
+
+---
+
 ## Categories
 
 | Method | Route | Auth | Description |

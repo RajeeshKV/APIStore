@@ -52,6 +52,7 @@ public sealed class AppDbContext(
     public DbSet<ProductAttributeValue> ProductAttributeValues => Set<ProductAttributeValue>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
     public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
+    public DbSet<CarouselSlide> CarouselSlides => Set<CarouselSlide>();
 
     // -----------------------------------------------------------------------
     // Cart

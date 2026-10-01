@@ -56,6 +56,8 @@ internal sealed class CatalogCacheService(IMemoryCache cache) : ICatalogCacheSer
 
     public void InvalidateStorefrontProduct(string slug) => RemoveStorefrontProduct(slug);
 
+    public void InvalidateCarousel() => cache.Remove(CatalogCacheKeys.StorefrontCarousel);
+
     // -----------------------------------------------------------------------
     // Dependency-aware (graph) invalidation
     // -----------------------------------------------------------------------

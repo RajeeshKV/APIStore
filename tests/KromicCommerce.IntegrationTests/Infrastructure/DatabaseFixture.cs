@@ -41,6 +41,16 @@ public sealed class DatabaseFixture : IAsyncLifetime
         if (!IsAvailable)
             throw new InvalidOperationException("DatabaseFixture is not available. Check IsAvailable before calling CreateDbContext.");
 
+        return BuildContext();
+    }
+
+    /// <summary>
+    /// Builds a context without the availability guard. Used during initialisation, which happens
+    /// before <see cref="IsAvailable"/> can be set true — routing it through
+    /// <see cref="CreateDbContext"/> made every integration test skip even with Docker running.
+    /// </summary>
+    private AppDbContext BuildContext()
+    {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql(_container.GetConnectionString())
             .Options;
@@ -55,9 +65,13 @@ public sealed class DatabaseFixture : IAsyncLifetime
         try
         {
             await _container.StartAsync();
-            await using var ctx = CreateDbContext();
-            await ctx.Database.MigrateAsync();
+
+            // Mark available before migrating: the guard is what CreateDbContext checks, and the
+            // migration below needs a context. A migration failure is caught here and flips this
+            // back to false with the reason attached.
             IsAvailable = true;
+            await using var ctx = BuildContext();
+            await ctx.Database.MigrateAsync();
         }
         catch (Exception ex)
         {

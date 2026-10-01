@@ -53,6 +53,7 @@ public interface IApplicationDbContext
     DbSet<ProductAttributeValue> ProductAttributeValues { get; }
     DbSet<ProductVariant> ProductVariants { get; }
     DbSet<InventoryItem> InventoryItems { get; }
+    DbSet<CarouselSlide> CarouselSlides { get; }
 
     // -----------------------------------------------------------------------
     // Cart
