@@ -93,7 +93,27 @@ internal sealed class GetSmsIntegrationStatusHandler(
     : IQueryHandler<GetSmsIntegrationStatusQuery, IntegrationStatusResponse>
 {
     public async Task<Result<IntegrationStatusResponse>> Handle(
-        GetSmsIntegrationStatusQuery query, CancellationToken ct)
+        GetSmsIntegrationStatusQuery query, CancellationToken cancellationToken)
+        => Result.Success(
+            await SmsIntegrationStatusBuilder.Build(
+                smsProviderFactory, savedSettings, cancellationToken));
+}
+
+/// <summary>
+/// Builds the SMS integration status payload.
+/// </summary>
+/// <remarks>
+/// Shared by the GET and the PUT so that saving a configuration and then reading it back can
+/// never disagree. The save endpoint returns this payload instead of <c>204 No Content</c>, which
+/// previously forced every admin screen into a second round trip to learn what was actually
+/// stored — and to guess at the outcome of a write that had already happened.
+/// </remarks>
+internal static class SmsIntegrationStatusBuilder
+{
+    internal static async Task<IntegrationStatusResponse> Build(
+        ISmsProviderFactory smsProviderFactory,
+        ISmsProviderSettings savedSettings,
+        CancellationToken ct)
     {
         var status = await smsProviderFactory.GetStatusAsync(ct);
         var saved = await savedSettings.GetEffectiveAsync(ct);
@@ -131,7 +151,7 @@ internal sealed class GetSmsIntegrationStatusHandler(
             HasSecret: status.IsConfigured,
             PublicFields: publicFields);
 
-        return Result.Success(result);
+        return result;
     }
 }
 

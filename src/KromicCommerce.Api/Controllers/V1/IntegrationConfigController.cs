@@ -71,14 +71,30 @@ public sealed class IntegrationConfigController(IMediator mediator) : Controller
         return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
+    /// <summary>
+    /// Selects the SMS gateway, stores its credentials encrypted, and returns the resulting
+    /// integration status.
+    /// </summary>
+    /// <remarks>
+    /// Returns the same body as <see cref="GetSms"/> rather than 204, so the admin screen learns
+    /// what was stored from the write itself and does not need a second request.
+    /// <para>
+    /// Enabling SMS requires every setting the chosen provider needs, so an incomplete
+    /// configuration is rejected with 400 and nothing is persisted — a store cannot half-enable a
+    /// gateway and believe it is sending. Staging is done with <c>enabled: false</c>, which accepts
+    /// partial settings and answers 200 with <c>isConfigured: false</c>; flip <c>enabled</c> to
+    /// true once every required setting is in place.
+    /// </para>
+    /// </remarks>
     [HttpPut("sms")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(IntegrationStatusResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> UpdateSms(
         [FromBody] UpdateSmsConfigRequest request, CancellationToken ct)
     {
         var result = await mediator.Send(new UpdateSmsConfigCommand(
             request.Enabled, request.Provider, request.ProviderSettings), ct);
-        return result.IsSuccess ? NoContent() : result.Error.ToActionResult();
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
     [HttpGet("email")]

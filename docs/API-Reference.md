@@ -184,7 +184,7 @@ All require `AdminOnly`.
 | PUT | `/api/v1/admin/settings/basic` | Name, contact, social links |
 | PUT | `/api/v1/admin/settings/locale` | Country, currency, timezone, culture |
 | PUT | `/api/v1/admin/settings/delivery` | Shipping fees, COD, delivery days |
-| PUT | `/api/v1/admin/settings/auth` | Auth methods, OTP config |
+| PUT | `/api/v1/admin/settings/auth` | Auth methods, OTP config. `smsProvider` optional — provider is selected via `/admin/integrations/sms` |
 | PUT | `/api/v1/admin/settings/email` | Email mode and sender identity |
 | PUT | `/api/v1/admin/settings/seo` | Meta title, description, favicon |
 | PUT | `/api/v1/admin/settings/status` | Open/closed state |
@@ -488,7 +488,7 @@ Addresses are customer-scoped. A customer cannot access another customer's addre
 | GET | `/api/v1/admin/integrations/email` | Admin | Brevo email status |
 | PUT | `/api/v1/admin/integrations/email` | Admin | Update Brevo config |
 | GET | `/api/v1/admin/integrations/sms` | Admin | SMS provider status |
-| PUT | `/api/v1/admin/integrations/sms` | Admin | Update SMS config |
+| PUT | `/api/v1/admin/integrations/sms` | Admin | Select provider + credentials. Returns the updated status (`200`), not `204` |
 
 **Security:** Secrets are never returned. Responses contain `isConfigured` flag and masked identifiers only.
 

@@ -13,6 +13,27 @@ namespace KromicCommerce.UnitTests.Application;
 /// </summary>
 public sealed class UpdateSmsConfigHandlerTests
 {
+[Fact]
+    public async Task The_save_returns_the_resulting_status_so_the_ui_needs_no_second_read()
+    {
+        // Returning 204 forced the admin screen into a follow-up GET to discover what had been
+        // stored. The response now carries the same payload the GET returns.
+        var (handler, _, _, _, _) = Build();
+
+        var result = await handler.Handle(
+            new UpdateSmsConfigCommand(
+                true, "Twilio",
+                Settings(("AccountSid", "AC123"), ("AuthToken", "tok"), ("ServiceSid", "sid"))),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().NotBeNull();
+        result.Value.IntegrationName.Should().Be("SMS");
+        result.Value.Enabled.Should().BeTrue();
+        result.Value.PublicFields.Should().ContainKey("provider");
+        result.Value.PublicFields["provider"].Should().Be("Twilio");
+    }
+
     [Fact]
     public async Task The_selection_is_persisted_so_the_save_actually_changes_delivery()
     {
@@ -206,7 +227,7 @@ public sealed class UpdateSmsConfigHandlerTests
     private static Dictionary<string, string> Settings(params (string Key, string Value)[] values)
         => values.ToDictionary(v => v.Key, v => v.Value);
 
-    private static (UpdateSmsConfigHandler Handler, Mock<IApplicationDbContext> Db, List<SmsProviderConfig> Configs, List<OutboxEvent> Events, SaveCounter Saves) Build()
+private static (UpdateSmsConfigHandler Handler, Mock<IApplicationDbContext> Db, List<SmsProviderConfig> Configs, List<OutboxEvent> Events, SaveCounter Saves) Build()
     {
         var configs = new List<SmsProviderConfig>();
         var events = new List<OutboxEvent>();
@@ -222,8 +243,13 @@ public sealed class UpdateSmsConfigHandlerTests
         secrets.Setup(s => s.Protect(It.IsAny<string>()))
             .Returns((string value) => $"enc:{value}");
 
+        // The handler now returns the post-save status, so it resolves the same factory and
+        // settings store the GET endpoint uses.
+        var factory = SmsTestDoubles.Configured();
         var handler = new UpdateSmsConfigHandler(
-            db.Object, secrets.Object, NullLogger<UpdateSmsConfigHandler>.Instance);
+            db.Object, secrets.Object, factory,
+            new Mock<ISmsProviderSettings>().Object,
+            NullLogger<UpdateSmsConfigHandler>.Instance);
 
         return (handler, db, configs, events, saves);
     }

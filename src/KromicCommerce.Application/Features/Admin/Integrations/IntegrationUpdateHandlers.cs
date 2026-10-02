@@ -24,7 +24,8 @@ public sealed record UpdateGoogleOAuthConfigCommand(
     bool Enabled, string ClientId, string ClientSecret) : ICommand;
 
 public sealed record UpdateSmsConfigCommand(
-    bool Enabled, string Provider, Dictionary<string, string>? ProviderSettings) : ICommand;
+    bool Enabled, string Provider, Dictionary<string, string>? ProviderSettings)
+    : ICommand<IntegrationStatusResponse>;
 
 /// <summary>
 /// Restricts an SMS configuration write to the three supported gateways and to the setting
@@ -251,10 +252,13 @@ internal sealed class UpdateGoogleOAuthConfigHandler(
 internal sealed class UpdateSmsConfigHandler(
     IApplicationDbContext db,
     ISecretProtectionService secrets,
+    ISmsProviderFactory smsProviderFactory,
+    ISmsProviderSettings savedSettings,
     ILogger<UpdateSmsConfigHandler> logger)
-    : ICommandHandler<UpdateSmsConfigCommand>
+    : ICommandHandler<UpdateSmsConfigCommand, IntegrationStatusResponse>
 {
-    public async Task<Result> Handle(UpdateSmsConfigCommand cmd, CancellationToken ct)
+    public async Task<Result<IntegrationStatusResponse>> Handle(
+        UpdateSmsConfigCommand cmd, CancellationToken ct)
     {
         // The validator rejects unsupported names, but the handler must not depend on a
         // validator having run: parsing again here keeps a direct call from writing a provider
@@ -262,7 +266,7 @@ internal sealed class UpdateSmsConfigHandler(
         var provider = SmsProviderKinds.Parse(cmd.Provider);
         if (provider is not { } kind)
         {
-            return Result.Failure(Error.Validation(
+            return Result.Failure<IntegrationStatusResponse>(Error.Validation(
                 "SMS_PROVIDER_UNSUPPORTED",
                 $"'{cmd.Provider}' is not a supported SMS provider. " +
                 $"Choose one of: {string.Join(", ", SmsProviderKinds.Selectable.Select(p => p.ToName()))}."));
@@ -303,7 +307,15 @@ internal sealed class UpdateSmsConfigHandler(
 
         logger.LogInformation("SMS configuration saved. Provider: {Provider} Enabled: {Enabled}",
             kind.ToName(), cmd.Enabled);
-        return Result.Success();
+
+        // Return the resulting status rather than a bare success, so the admin form knows what was
+        // actually stored without a second request. Enabling an incomplete configuration is
+        // rejected by the validator, but a staged (enabled: false) save returns isConfigured:
+        // false here — "saved" and "able to send" are genuinely different states.
+        var status = await SmsIntegrationStatusBuilder.Build(
+            smsProviderFactory, savedSettings, ct);
+
+        return Result.Success(status);
     }
 
     /// <summary>

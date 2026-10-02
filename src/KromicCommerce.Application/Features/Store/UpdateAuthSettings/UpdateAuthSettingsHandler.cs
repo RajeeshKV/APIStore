@@ -23,7 +23,11 @@ internal sealed class UpdateAuthSettingsHandler(
             command.GoogleOAuthEnabled, command.EmailPasswordEnabled,
             command.MobileOtpEnabled, command.OtpExpiryMinutes,
             command.OtpResendCooldownSeconds, command.OtpMaxAttempts,
-            command.SmsProvider,
+            // Provider selection is owned by PUT /admin/integrations/sms, which persists the
+            // authoritative SmsProviderConfig row. This legacy field is echoed for display only,
+            // so a form that omits it must preserve what is already stored rather than blanking it
+            // — and must not be forced to invent a value that has no effect on delivery.
+            command.SmsProvider ?? settings.Auth.SmsProvider,
             // Preserve existing Google credentials — this handler only changes flags, not credentials
             googleClientId: settings.Auth.GoogleClientId,
             encryptedGoogleClientSecret: settings.Auth.EncryptedGoogleClientSecret,
