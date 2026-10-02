@@ -40,6 +40,17 @@ public interface ICatalogCacheService
     /// </summary>
     void InvalidateCarousel();
 
+    /// <summary>
+    /// Invalidates every cached public review page for one product.
+    /// Call after any review write that can change what the public list should return: submit,
+    /// edit, delete, moderate, or a helpful vote (which changes the "most helpful" ordering).
+    ///
+    /// Implemented by bumping a per-product epoch rather than enumerating keys, because
+    /// IMemoryCache cannot prefix-delete and a popular product can have many cached pages
+    /// across every sort, filter and page combination.
+    /// </summary>
+    void InvalidateProductReviews(Guid productId);
+
     // -----------------------------------------------------------------------
     // Dependency-aware (graph) invalidation
     // -----------------------------------------------------------------------

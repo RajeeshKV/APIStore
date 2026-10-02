@@ -1,5 +1,7 @@
 using KromicCommerce.Application.Abstractions.Data;
 using KromicCommerce.Domain.Cart;
+using KromicCommerce.Domain.Catalog;
+using KromicCommerce.Domain.Identity;
 using KromicCommerce.Domain.Orders;
 using KromicCommerce.Domain.Outbox;
 using KromicCommerce.Domain.Promotions;
@@ -27,6 +29,7 @@ public sealed class AppDbContext(
     public DbSet<OtpRequest> OtpRequests => Set<OtpRequest>();
     public DbSet<CustomerProfile> CustomerProfiles => Set<CustomerProfile>();
     public DbSet<CustomerAddress> CustomerAddresses => Set<CustomerAddress>();
+    public DbSet<WishlistItem> WishlistItems => Set<WishlistItem>();
 
     // -----------------------------------------------------------------------
     // Store
@@ -53,6 +56,8 @@ public sealed class AppDbContext(
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
     public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
     public DbSet<CarouselSlide> CarouselSlides => Set<CarouselSlide>();
+    public DbSet<ProductReview> ProductReviews => Set<ProductReview>();
+    public DbSet<ReviewHelpfulVote> ReviewHelpfulVotes => Set<ReviewHelpfulVote>();
 
     // -----------------------------------------------------------------------
     // Cart
@@ -278,6 +283,58 @@ public sealed class AppDbContext(
               WHERE ""PhoneNumber"" = {0} AND ""Purpose"" = {1}",
             new object[] { phoneNumber, purpose.ToString() },
             cancellationToken);
+
+    // -----------------------------------------------------------------------
+    // Wishlist / reviews
+    // Both indexes (ix_wishlist_items_customer_product_variant and
+    // ix_product_reviews_customer_product_variant) are unique with NULLS NOT DISTINCT, so a NULL
+    // ProductVariantId is a single key. ON CONFLICT DO NOTHING lets the index pick the winner
+    // atomically; a handler-level existence check cannot, because any read it performs can be
+    // overtaken between the read and the insert.
+    // -----------------------------------------------------------------------
+
+    public async Task<bool> TryAddWishlistItemAsync(
+        Guid customerId,
+        Guid productId,
+        Guid? productVariantId,
+        CancellationToken cancellationToken = default)
+    {
+        var affected = await Database.ExecuteSqlRawAsync(
+            @"INSERT INTO wishlist_items (""Id"", ""CustomerId"", ""ProductId"", ""ProductVariantId"", ""CreatedAtUtc"", ""UpdatedAtUtc"")
+              VALUES ({0}, {1}, {2}, {3}, {4}, {4})
+              ON CONFLICT DO NOTHING",
+            new object[] { Guid.NewGuid(), customerId, productId, productVariantId, DateTime.UtcNow },
+            cancellationToken);
+
+        return affected == 1;
+    }
+
+    public async Task<bool> TryAddProductReviewAsync(
+        Guid customerId,
+        Guid productId,
+        Guid? productVariantId,
+        int rating,
+        string? title,
+        string body,
+        bool isVerifiedPurchase,
+        ReviewStatus status,
+        CancellationToken cancellationToken = default)
+    {
+        var affected = await Database.ExecuteSqlRawAsync(
+            @"INSERT INTO product_reviews (""Id"", ""CustomerId"", ""ProductId"", ""ProductVariantId"", ""Rating"", ""Title"", ""Body"", ""IsVerifiedPurchase"", ""Status"", ""PublishedAtUtc"", ""HelpfulCount"", ""CreatedAtUtc"", ""UpdatedAtUtc"")
+              VALUES ({0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}, 0, {10}, {10})
+              ON CONFLICT DO NOTHING",
+            new object[]
+            {
+                Guid.NewGuid(), customerId, productId, productVariantId, rating,
+                title, body, isVerifiedPurchase, status.ToString(),
+                status == ReviewStatus.Published ? DateTime.UtcNow : (object?)null,
+                DateTime.UtcNow
+            },
+            cancellationToken);
+
+        return affected == 1;
+    }
 
     private static string GenerateAnonymousCartId()
     {

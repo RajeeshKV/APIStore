@@ -38,7 +38,7 @@ public sealed class TwoFactorOptions
     /// Path of the template-driven send endpoint, appended to <see cref="BaseUrl"/>.
     /// Configurable because the published documentation is not fetchable — see remarks.
     /// </summary>
-    public string SendPath { get; init; } = "/v1/sms/send";
+    public string SendPath { get; init; } = "/v1/sms/otp";
 
     /// <summary>Approved sender id registered with the 2Factor account, when the account has one.</summary>
     public string? SenderId { get; init; } = null;

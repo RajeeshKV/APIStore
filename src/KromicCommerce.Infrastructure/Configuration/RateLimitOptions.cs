@@ -19,4 +19,10 @@ public sealed class RateLimitOptions
 
     public int OtpWindowSeconds { get; init; } = 60;
     public int OtpPermitLimit { get; init; } = 5;
+
+    // Customer media upload. A review allows only a handful of images, so a per-account quota
+    // is far tighter than the general API limit and is keyed on the account rather than the IP
+    // — see RateLimitingExtensions.MediaUploadPolicy.
+    public int MediaUploadWindowSeconds { get; init; } = 3600;
+    public int MediaUploadPermitLimit { get; init; } = 10;
 }

@@ -58,6 +58,21 @@ internal sealed class CatalogCacheService(IMemoryCache cache) : ICatalogCacheSer
 
     public void InvalidateCarousel() => cache.Remove(CatalogCacheKeys.StorefrontCarousel);
 
+    public void InvalidateProductReviews(Guid productId)
+    {
+        // Epoch bump rather than key enumeration. IMemoryCache cannot prefix-delete, and one
+        // product can have cached pages for every (sort, rating filter, page) combination.
+        // Every previously written entry becomes unreachable and is reclaimed by the cache's
+        // size limit / absolute expiry.
+        cache.Set(
+            CatalogCacheKeys.ProductReviewsEpochKey(productId),
+            GetProductReviewsEpoch(productId) + 1,
+            new MemoryCacheEntryOptions { Size = 1 });
+    }
+
+    private int GetProductReviewsEpoch(Guid productId) =>
+        cache.TryGetValue(CatalogCacheKeys.ProductReviewsEpochKey(productId), out int epoch) ? epoch : 0;
+
     // -----------------------------------------------------------------------
     // Dependency-aware (graph) invalidation
     // -----------------------------------------------------------------------

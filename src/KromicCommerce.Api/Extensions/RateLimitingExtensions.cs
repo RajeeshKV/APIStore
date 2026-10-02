@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Threading.RateLimiting;
 using KromicCommerce.Infrastructure.Configuration;
 
@@ -9,6 +10,7 @@ internal static class RateLimitingExtensions
     internal const string AuthPolicy = "auth";
     internal const string OtpPolicy = "otp";
     internal const string PasswordResetPolicy = "password-reset";
+    internal const string MediaUploadPolicy = "media-upload";
 
     internal static IServiceCollection AddRateLimitingPolicies(
         this IServiceCollection services,
@@ -65,6 +67,22 @@ internal static class RateLimitingExtensions
                         Window = TimeSpan.FromMinutes(15),
                         QueueLimit = 0
                     }));
+
+            // Customer review-image uploads.
+            //
+            // Keyed by authenticated user id, NOT by IP, on purpose. An IP-keyed quota punishes
+            // everyone behind one NAT or office egress for a single abusive account, and lets one
+            // account rotate addresses freely. Falling back to the IP only when the caller is
+            // anonymous keeps the partition key stable.
+            limiter.AddPolicy(MediaUploadPolicy, ctx =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    GetUserOrClientPartitionKey(ctx),
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = opts.MediaUploadPermitLimit,
+                        Window = TimeSpan.FromSeconds(opts.MediaUploadWindowSeconds),
+                        QueueLimit = 0
+                    }));
         });
 
         return services;
@@ -72,4 +90,21 @@ internal static class RateLimitingExtensions
 
     private static string GetClientIp(HttpContext ctx) =>
         ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    /// <summary>
+    /// Partition key for per-account quotas: the authenticated subject when there is one,
+    /// otherwise the client IP.
+    ///
+    /// The claim name is checked rather than assumed, because relying on a wrong name here would
+    /// silently fall back to IP and quietly reintroduce the shared-quota problem.
+    /// </summary>
+    private static string GetUserOrClientPartitionKey(HttpContext ctx)
+    {
+        var subject = ctx.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? ctx.User.FindFirst("sub")?.Value;
+
+        return string.IsNullOrWhiteSpace(subject)
+            ? $"ip:{GetClientIp(ctx)}"
+            : $"user:{subject}";
+    }
 }

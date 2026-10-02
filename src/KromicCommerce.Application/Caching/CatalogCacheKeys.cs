@@ -1,5 +1,7 @@
 namespace KromicCommerce.Application.Caching;
 
+using Microsoft.Extensions.Caching.Memory;
+
 /// <summary>
 /// Catalog cache key constants shared by Application handlers.
 /// Infrastructure mirrors these in CacheKeys.cs (which may add infrastructure-only keys).
@@ -35,6 +37,36 @@ public static class CatalogCacheKeys
     /// call, so there is no query parameter to encode.
     /// </summary>
     public const string StorefrontCarousel = "storefront:carousel:all";
+
+    /// <summary>
+    /// Public product-review listing. Every varying input is encoded in the key — product, sort,
+    /// rating filter, page and page size — because omitting any one of them would serve a page
+    /// built for a different request.
+    /// </summary>
+    public static string StorefrontProductReviews(
+        Guid productId,
+        string sort,
+        int? rating,
+        int page,
+        int pageSize)
+        => $"storefront:reviews:{productId}:{sort}:{rating?.ToString() ?? "all"}:{page}:{pageSize}";
+
+    /// <summary>
+    /// Prefix for every cached review page of one product, so a review write can evict all of
+    /// them at once. IMemoryCache cannot prefix-delete, so this is an epoch-style key family:
+    /// <see cref="StorefrontProductReviews"/> embeds the current epoch, and bumping the epoch
+    /// orphans every previously written entry without enumerating keys.
+    /// </summary>
+    public const string ProductReviewsEpochPrefix = "storefront:reviews_epoch:";
+
+    public static string ProductReviewsEpochKey(Guid productId) => $"{ProductReviewsEpochPrefix}{productId}";
+
+    public static int CurrentProductReviewsEpoch(IMemoryCache cache, Guid productId) =>
+        cache.TryGetValue(ProductReviewsEpochKey(productId), out int epoch) ? epoch : 0;
+
+    public static string StorefrontProductReviewsWithEpoch(
+        Guid productId, int epoch, string sort, int? rating, int page, int pageSize)
+        => $"storefront:reviews:{productId}|e{epoch}:{sort}:{rating?.ToString() ?? "all"}:{page}:{pageSize}";
 
     /// <summary>
     /// Featured-products key. The limit is part of the key because it is baked into the

@@ -23,6 +23,8 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.Property(p => p.MetaKeywords).HasMaxLength(500);
         builder.Property(p => p.IsFeatured).IsRequired().HasDefaultValue(false);
         builder.Property(p => p.IsTaxable).IsRequired().HasDefaultValue(true);
+        builder.Property(p => p.RatingAverage).IsRequired().HasColumnType("numeric(3,2)").HasDefaultValue(0m);
+        builder.Property(p => p.RatingCount).IsRequired().HasDefaultValue(0);
         builder.Property(p => p.CreatedAtUtc).IsRequired();
         builder.Property(p => p.UpdatedAtUtc).IsRequired();
 
@@ -44,6 +46,15 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
             .WithOne(a => a.Product).HasForeignKey(a => a.ProductId).OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(p => p.Variants)
             .WithOne(v => v.Product).HasForeignKey(v => v.ProductId).OnDelete(DeleteBehavior.Cascade);
+
+        // Reviews are a Product-owned collection and are cascade-deleted with the product, but
+        // there is deliberately no `Reviews` navigation on Product: a popular product can have
+        // thousands of them, and a navigation would invite loading them whenever a Product is
+        // materialised. The relationship is configured from the dependent side instead.
+        builder.HasMany<ProductReview>()
+            .WithOne(r => r.Product)
+            .HasForeignKey(r => r.ProductId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         builder.Navigation(p => p.Images).UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.Navigation(p => p.Attributes).UsePropertyAccessMode(PropertyAccessMode.Field);

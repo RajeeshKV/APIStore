@@ -35,6 +35,9 @@ public static class ApplicationServiceExtensions
         // Shared by cancellation and the payment-failure release so both restore stock from the
         // persisted per-order-item lifecycle instead of inferring it from current counters.
         services.AddScoped<Services.OrderInventoryRestorer>();
+        // Shared by every review write handler so the denormalised rating aggregate is derived
+        // identically on each path that can change the published set.
+        services.AddScoped<Features.Catalog.Reviews.ProductReviewRatingRecalculator>();
         services.AddScoped<ICheckoutSummaryService, Services.CheckoutSummaryService>();
 
         return services;

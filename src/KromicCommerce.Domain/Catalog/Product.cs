@@ -81,6 +81,19 @@ public sealed class Product : AuditableEntity
     public bool IsFeatured { get; private set; }
     public bool IsTaxable { get; private set; } = true;
 
+    // -----------------------------------------------------------------------
+    // Rating aggregate (denormalised from published reviews)
+    // -----------------------------------------------------------------------
+    // Maintained by every handler that can change the published review set — submit, edit,
+    // moderate, delete, and product cascade-delete. Always set from a full recalculation via
+    // SetRatingAggregate, never by incrementing; see ReviewRatingAggregate for why.
+
+    /// <summary>Mean rating across published reviews, 2dp. Zero when there are none.</summary>
+    public decimal RatingAverage { get; private set; }
+
+    /// <summary>Number of published reviews. Zero when there are none.</summary>
+    public int RatingCount { get; private set; }
+
     // Navigation
     public Category? Category { get; private set; }
     public Brand? Brand { get; private set; }
@@ -156,6 +169,17 @@ public sealed class Product : AuditableEntity
         if (Status == ProductStatus.Draft) return;
         Status = ProductStatus.Draft;
         RaiseDomainEvent(new ProductStatusChangedEvent(Id, Status));
+    }
+
+    /// <summary>
+    /// Overwrites the denormalised rating summary with a full recalculation of the published
+    /// review set. The only supported way to change RatingAverage / RatingCount.
+    /// </summary>
+    public void SetRatingAggregate(ReviewRatingAggregate aggregate)
+    {
+        ArgumentNullException.ThrowIfNull(aggregate);
+        RatingAverage = aggregate.Average;
+        RatingCount = aggregate.Count;
     }
 
     // -----------------------------------------------------------------------

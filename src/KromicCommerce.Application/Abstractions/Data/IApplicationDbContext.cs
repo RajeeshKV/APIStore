@@ -28,6 +28,7 @@ public interface IApplicationDbContext
     DbSet<OtpRequest> OtpRequests { get; }
     DbSet<CustomerProfile> CustomerProfiles { get; }
     DbSet<CustomerAddress> CustomerAddresses { get; }
+    DbSet<WishlistItem> WishlistItems { get; }
 
     // -----------------------------------------------------------------------
     // Store
@@ -54,6 +55,8 @@ public interface IApplicationDbContext
     DbSet<ProductVariant> ProductVariants { get; }
     DbSet<InventoryItem> InventoryItems { get; }
     DbSet<CarouselSlide> CarouselSlides { get; }
+    DbSet<ProductReview> ProductReviews { get; }
+    DbSet<ReviewHelpfulVote> ReviewHelpfulVotes { get; }
 
     // -----------------------------------------------------------------------
     // Cart
@@ -155,5 +158,42 @@ Task UpsertCartItemAsync(
     Task ReleaseOtpSendClaimAsync(
         string phoneNumber,
         OtpPurpose purpose,
+        CancellationToken cancellationToken = default);
+
+    // -----------------------------------------------------------------------
+    // Wishlist / reviews
+    // -----------------------------------------------------------------------
+    // Both rely on unique indexes created with NULLS NOT DISTINCT, so a NULL
+    // ProductVariantId is a single key. A read-then-write sequence in a handler would lose the
+    // race: two concurrent requests could both see "no existing row" and both insert. Letting the
+    // index decide via ON CONFLICT DO NOTHING makes the loser wait, then observe the winner's row.
+
+    /// <summary>
+    /// Atomically inserts a wishlist item.
+    /// Returns <c>true</c> when this caller created the row, <c>false</c> when the entry already
+    /// existed. Making the add idempotent is deliberate: a double-tapped heart is a UI accident,
+    /// not a conflict, and the storefront should not need a disable-and-retry dance.
+    /// </summary>
+    Task<bool> TryAddWishlistItemAsync(
+        Guid customerId,
+        Guid productId,
+        Guid? productVariantId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Atomically inserts a product review.
+    /// Returns <c>true</c> when this caller created the row, <c>false</c> when the customer
+    /// already has a review for that product/variant. Callers translate <c>false</c> into a
+    /// conflict — unlike the wishlist, a second review is a genuine error, not a retry.
+    /// </summary>
+    Task<bool> TryAddProductReviewAsync(
+        Guid customerId,
+        Guid productId,
+        Guid? productVariantId,
+        int rating,
+        string? title,
+        string body,
+        bool isVerifiedPurchase,
+        ReviewStatus status,
         CancellationToken cancellationToken = default);
 }
