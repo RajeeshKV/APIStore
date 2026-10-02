@@ -5,7 +5,9 @@ namespace KromicCommerce.Application.Features.Storefront.Products.GetStorefrontP
 
 /// <summary>
 /// Returns full product detail for a storefront product page.
-/// Caches the public response by slug (key: "storefront:product:{slug}").
+/// Caches the public response by slug, keyed through the catalog and shipping epochs
+/// ("storefront:product:{slug}|c{catalogEpoch}e{shippingEpoch}") so that a brand, category,
+/// delivery or COD change orphans every cached page without enumerating cache keys.
 /// Draft / Archived products return NotFound — never exposed publicly.
 /// Effective prices use Product.GetEffectivePrice — single source of truth.
 /// Stock is derived per-product and per-variant without exposing OnHand/Reserved.
@@ -28,8 +30,14 @@ internal sealed class GetStorefrontProductBySlugHandler(
         // Normalise the slug before it is used as a cache key as well as in the query,
         // otherwise a whitespace-padded slug writes a second, unreachable cache entry.
         var slug = CatalogCacheKeys.NormaliseSlug(query.Slug);
-        var cacheKey = CatalogCacheKeys.DeliveryScopedStorefrontProduct(
-            slug, catalogCache.GetShippingEpoch());
+
+        // The key carries both epochs. The shipping epoch orphans the page when delivery/COD
+        // configuration changes; the catalog epoch orphans it when a brand or category changes,
+        // because the page embeds those names and the affected slugs cannot be enumerated here.
+        var cacheKey = CatalogCacheKeys.CatalogScopedStorefrontProduct(
+            slug,
+            CatalogCacheKeys.CurrentCatalogEpoch(cache),
+            catalogCache.GetShippingEpoch());
 
         if (cache.TryGetValue(cacheKey, out StorefrontProductResponse? cached) && cached is not null)
             return Result.Success(cached);

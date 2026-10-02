@@ -14,7 +14,7 @@ internal sealed class GetFeaturedProductsHandler(
     IOptions<CatalogCacheOptions> cacheOpts)
     : IQueryHandler<GetFeaturedProductsQuery, IReadOnlyList<StorefrontProductSummaryResponse>>
 {
-    private const int MaxLimit = 50;
+    private const int MaxLimit = CatalogCacheKeys.MaxFeaturedLimit;
 
     public async Task<Result<IReadOnlyList<StorefrontProductSummaryResponse>>> Handle(
         GetFeaturedProductsQuery query,

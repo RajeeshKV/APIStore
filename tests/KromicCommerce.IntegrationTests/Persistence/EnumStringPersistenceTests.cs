@@ -14,8 +14,10 @@ public sealed class EnumStringPersistenceTests(DatabaseFixture db)
         ctx.Users.Add(user);
         await ctx.SaveChangesAsync();
 
+        // Quoted, because EF maps these to PascalCase columns and an unquoted identifier folds to
+        // lowercase in PostgreSQL, which does not match.
         var rawRole = await ctx.Database.SqlQueryRaw<string>(
-            "SELECT role FROM users WHERE id = {0}", user.Id)
+            "SELECT \"Role\" AS \"Value\" FROM users WHERE \"Id\" = {0}", user.Id)
             .FirstAsync();
 
         rawRole.Should().Be("Customer");
@@ -31,7 +33,7 @@ public sealed class EnumStringPersistenceTests(DatabaseFixture db)
         await ctx.SaveChangesAsync();
 
         var rawPurpose = await ctx.Database.SqlQueryRaw<string>(
-            "SELECT purpose FROM otp_requests WHERE id = {0}", otp.Id)
+            "SELECT \"Purpose\" AS \"Value\" FROM otp_requests WHERE \"Id\" = {0}", otp.Id)
             .FirstAsync();
 
         rawPurpose.Should().Be("PhoneVerification");

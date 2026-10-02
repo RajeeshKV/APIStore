@@ -42,14 +42,18 @@ public sealed class OrderItemInventoryLifecycleTests(DatabaseFixture db)
     {
         await using var ctx = Db.CreateDbContext();
         var product = SeedProduct(ctx);
-        await SeedOrderWithLine(ctx, product, qty: 1, OrderItemInventoryStatus.Finalized);
+        var order = await SeedOrderWithLine(ctx, product, qty: 1, OrderItemInventoryStatus.Finalized);
 
         // Read as text, bypassing the enum conversion, so the on-disk representation is asserted.
+        // Scoped to the row just written: an unfiltered scan of the shared table made this test
+        // depend on whichever other test happened to have seeded an Untracked line first, so it
+        // passed or failed on execution order rather than on the mapping under test.
         var raw = await ctx.Database.SqlQueryRaw<string>(
-            "SELECT \"InventoryStatus\" AS \"Value\" FROM order_items").ToListAsync();
+            "SELECT \"InventoryStatus\" AS \"Value\" FROM order_items WHERE \"Id\" = {0}", order.Id)
+            .FirstAsync();
 
-        raw.Should().NotBeEmpty();
-        raw.Should().Contain(["Untracked", "Reserved", "Finalized", "Restored"]);
+        // The point is that it is the name and not the ordinal, which would persist as 2.
+        raw.Should().Be("Finalized");
     }
 
     [SkippableFact]

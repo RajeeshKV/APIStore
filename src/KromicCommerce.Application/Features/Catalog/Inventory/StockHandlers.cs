@@ -27,6 +27,26 @@ internal sealed class SetStockHandler(
 
         if (inventory is null)
         {
+            // A base-product row (no variant) must not be created for a product that already has
+            // variants, because availability is summed across a product's inventory rows and the
+            // two would be counted together, overstating stock. The database enforces this with a
+            // trigger, but a trigger violation would surface as an unhandled 500, so it is
+            // rejected here with an actionable message instead.
+            if (command.VariantId is null)
+            {
+                var hasVariantRows = await db.InventoryItems
+                    .AnyAsync(i =>
+                        i.ProductId == command.ProductId && i.VariantId != null,
+                        cancellationToken);
+
+                if (hasVariantRows)
+                    return Result.Failure<InventoryResponse>(
+                        Error.Conflict(
+                            "INVENTORY_VARIANT_ROWS_EXIST",
+                            "This product tracks stock per variant. Set stock against a specific " +
+                            "variant instead of the product."));
+            }
+
             inventory = InventoryItem.Create(
                 command.ProductId, command.VariantId,
                 command.OnHand, command.LowStockThreshold);

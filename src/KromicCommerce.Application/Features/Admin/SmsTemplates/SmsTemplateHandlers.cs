@@ -44,23 +44,23 @@ internal sealed class GetSmsProvidersHandler : IQueryHandler<GetSmsProvidersQuer
     public Task<Result<IReadOnlyList<SmsProviderOptionResponse>>> Handle(
         GetSmsProvidersQuery query, CancellationToken ct)
     {
-        IReadOnlyList<SmsProviderOptionResponse> result = SmsProviderKinds.Selectable
-            .Select(k => new SmsProviderOptionResponse(k.ToName(), Describe(k)))
+        // Served from the same table that validates a save, so the rendered form and the enforced
+        // rules cannot drift apart. The UI therefore never needs to know, for example, that a
+        // 2Factor template value is a template NAME while a Twilio one is a Template SID.
+        IReadOnlyList<SmsProviderOptionResponse> result = SmsProviderFieldSchema.All
+            .Select(s => new SmsProviderOptionResponse(
+                s.Name,
+                s.Description,
+                s.SupportsNativeOtp,
+                s.RequiresTemplate,
+                s.RequiredSettings,
+                s.Settings,
+                s.TemplateFields,
+                s.Notes))
             .ToList();
 
         return Task.FromResult(Result.Success(result));
     }
-
-    private static string Describe(SmsProviderKind kind) => kind switch
-    {
-        SmsProviderKind.TwoFactor =>
-            "API-key SMS gateway. Requires an approved message template. Sends the code we generate.",
-        SmsProviderKind.Free2Sms =>
-            "Bearer-token gateway with DLT template matching. India numbers only (10 digits).",
-        SmsProviderKind.Twilio =>
-            "Hosted OTP service (Verify v2). International numbers. Can send our code or use a verified template.",
-        _ => string.Empty
-    };
 }
 
 internal sealed class GetSmsTemplatesHandler(IApplicationDbContext db)
@@ -89,6 +89,16 @@ internal sealed class CreateSmsTemplateHandler(IApplicationDbContext db)
                 "SMS_PROVIDER_UNSUPPORTED",
                 $"'{cmd.Provider}' is not a supported SMS provider. " +
                 $"Choose one of: {string.Join(", ", SmsProviderKinds.Selectable.Select(p => p.ToName()))}."));
+        }
+
+        // Validated against the same descriptors the admin form is rendered from, so the required
+        // fields and formats the UI enforces are the ones the server enforces.
+        var errors = SmsProviderFieldSchema.ValidateTemplate(provider, cmd.Body, cmd.ExternalTemplateId);
+        if (errors.Count > 0)
+        {
+            return Result.Failure<SmsTemplateResponse>(Error.Validation(
+                "SMS_TEMPLATE_INVALID",
+                string.Join(" ", errors.Values)));
         }
 
         if (cmd.IsActive)
@@ -120,6 +130,15 @@ internal sealed class UpdateSmsTemplateHandler(IApplicationDbContext db)
         var template = await db.SmsTemplates.FindAsync([cmd.TemplateId], ct);
         if (template is null)
             return Result.Failure<SmsTemplateResponse>(Error.NotFound("SMS_TEMPLATE_NOT_FOUND", "SMS template not found."));
+
+        var errors = SmsProviderFieldSchema.ValidateTemplate(
+            template.Provider, cmd.Body, cmd.ExternalTemplateId);
+        if (errors.Count > 0)
+        {
+            return Result.Failure<SmsTemplateResponse>(Error.Validation(
+                "SMS_TEMPLATE_INVALID",
+                string.Join(" ", errors.Values)));
+        }
 
         template.Update(cmd.Name, cmd.Body, cmd.ExternalTemplateId);
 

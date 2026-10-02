@@ -911,7 +911,7 @@ identifiers only.
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| GET | `/api/v1/admin/integrations/sms/providers` | Available provider names + descriptions |
+| GET | `/api/v1/admin/integrations/sms/providers` | **Field schema per provider — render your form from this** |
 | GET | `/api/v1/admin/integrations/sms/templates` | All SMS templates |
 | POST | `/api/v1/admin/integrations/sms/templates` | Create a template → `201` |
 | PUT | `/api/v1/admin/integrations/sms/templates/{id}` | Update a template |
@@ -920,6 +920,73 @@ identifiers only.
 Supported providers are `None`, `TwoFactor`, `Free2Sms`, and `Twilio`. **Exactly one provider is
 active at a time**, selected via `PUT /api/v1/admin/integrations/sms` — that is the only place
 provider selection happens.
+
+#### `GET /admin/integrations/sms/providers` — the field schema
+
+**The backend is the source of truth for the configuration form.** This endpoint returns, per
+provider, exactly which inputs to render, which are required, and what format each expects. The
+same table validates the save, so the form and the enforced rules cannot disagree.
+
+```jsonc
+[{
+  "name": "2Factor",
+  "description": "API-key SMS gateway. Sends the verification code this application generates.",
+  "supportsNativeOtp": true,       // has a dedicated OTP endpoint → offer a delivery mode
+  "requiresTemplate": true,        // show the template section
+  "requiredSettings": ["ApiKey"],
+  "settings": [
+    {
+      "key": "ApiKey",             // the wire key for PUT .../sms
+      "label": "API key",
+      "type": "Secret",            // Text | Secret | Textarea | Number | Select
+      "required": true,
+      "secret": true,              // write-only; never returned by any endpoint
+      "advanced": false,
+      "helpText": "2Factor 'secret' from Account settings. Sent as the X-API-Key header.",
+      "placeholder": "Paste the key from your provider account",
+      "formatHint": null,
+      "maxLength": 500,
+      "allowedValues": null,        // populated when type = Select
+      "requiredWhen": null,
+      "defaultValue": null
+    }
+  ],
+  "templateFields": [ /* same shape; key is "externalTemplateId" or "body" */ ],
+  "notes": ["The template name is sent on every request, so changing it takes effect immediately."]
+}]
+```
+
+**Field keys differ by gateway for the same vendor concept.** The UI must use `label`, not a
+hard-coded string:
+
+| Wire key | 2Factor | Free2SMS | Twilio |
+|----------|---------|----------|--------|
+| `externalTemplateId` | **Template name** (e.g. `LOGIN_OTP`) — **required** | DLT template ID — optional | Verify Template SID (`HJ…`) — optional |
+| `body` | optional | optional | optional |
+
+**Render rules:**
+
+- Show only `settings` for the selected provider. Switching provider and saving **clears** every
+  field that does not apply to the new provider — the save replaces the stored set, so a 2Factor
+  `OtpPath` is not carried into Free2SMS.
+- Collapse `advanced: true` fields behind a disclosure. They are fully configurable and validated.
+- Render `type: "Secret"` as a password input and never pre-fill it; those values are never
+  returned by any endpoint.
+- Render `type: "Select"` with `allowedValues`.
+- Mark `required: true` as mandatory. Where `requiredWhen` is set instead, the field becomes
+  mandatory under that condition — the 2Factor template name is required whenever the
+  transactional template route is used.
+- Hide the whole template section when `requiresTemplate` is false.
+- Only offer a delivery mode when `supportsNativeOtp` is true.
+
+**Server-side enforcement (mirrors the schema exactly):**
+
+- Unknown setting keys → `400`, naming the accepted ones.
+- Missing `requiredSettings` while `enabled: true` → `400`.
+- Value beyond `maxLength`, outside `allowedValues`, or a path not starting with `/` → `400`.
+- A 2Factor template saved without `externalTemplateId` → `400 SMS_TEMPLATE_INVALID`. This was
+  previously accepted and failed much later at send time with `TEMPLATE_NOT_CONFIGURED`.
+
 
 - `SmsTemplateResponse`: `id`, `provider`, `name`, `body`, `externalTemplateId?`, `isActive`,
   `updatedAtUtc`.

@@ -54,9 +54,34 @@ internal sealed class UpdateSmsConfigValidator : AbstractValidator<UpdateSmsConf
                 "supports, and every required one of them.")
             .When(x => SmsProviderKinds.Parse(x.Provider) is not null);
 
+        // Enforces exactly what GET /admin/integrations/sms/providers advertises: the length
+        // limits, the enumerated values, and the endpoint-path shape. Previously nothing checked
+        // these, so a client could store a 4000-character delivery mode or a route that 2Factor
+        // would reject on every send. The frontend is expected to pre-validate from the schema,
+        // but the server is what actually enforces it.
+        RuleFor(x => x.ProviderSettings)
+            .Must((cmd, settings) => HasValidValues(cmd, settings))
+            .WithMessage(
+                "One or more provider settings are invalid. See GET " +
+                "/admin/integrations/sms/providers for the accepted values and formats.")
+            .When(x => SmsProviderKinds.Parse(x.Provider) is not null);
+
         RuleFor(x => x.ProviderSettings)
             .Must(s => s is null || s.Values.All(v => string.IsNullOrEmpty(v) || v.Length <= 2000))
             .WithMessage("A setting value must not exceed 2000 characters.");
+    }
+
+    /// <summary>
+    /// Each supplied setting must satisfy the descriptor the admin form was rendered from.
+    /// </summary>
+    private static bool HasValidValues(
+        UpdateSmsConfigCommand command, Dictionary<string, string>? settings)
+    {
+        if (SmsProviderKinds.Parse(command.Provider) is not { } provider || settings is null)
+            return true;
+
+        return settings.All(pair =>
+            SmsProviderFieldSchema.ValidateSetting(provider, pair.Key, pair.Value) is null);
     }
 
     private static bool BeSupported(string? provider) => SmsProviderKinds.Parse(provider) is not null;

@@ -75,6 +75,18 @@ public static class CatalogCacheKeys
     /// </summary>
     public static string StorefrontFeaturedProducts(int limit) => $"{StorefrontFeaturedPrefix}:{limit}";
 
+    /// <summary>
+    /// Largest page size a featured-products request may ask for.
+    /// </summary>
+    /// <remarks>
+    /// Declared once, here, because it has two independent consumers that must not drift:
+    /// the query handler clamps the requested limit to it, and cache invalidation must evict
+    /// every key from 1 up to it. If the clamp were raised without widening the invalidation
+    /// loop, entries written for the new larger limits would never be evicted and the featured
+    /// list would silently serve stale data.
+    /// </remarks>
+    public const int MaxFeaturedLimit = 50;
+
     // -----------------------------------------------------------------------
     // Store configuration caches
     // -----------------------------------------------------------------------
@@ -97,6 +109,34 @@ public static class CatalogCacheKeys
 
     /// <summary>Key holding the current shipping/COD configuration epoch.</summary>
     public const string ShippingEpochKey = ShippingEpoch;
+
+    // -----------------------------------------------------------------------
+    // Catalog structure epoch
+    //
+    // Storefront product pages embed the brand name/slug and the category name/slug
+    // (StorefrontProductResponse). A brand or category rename therefore makes every cached
+    // product page wrong, but the affected product slugs cannot be known without querying, and
+    // IMemoryCache can neither enumerate nor prefix-delete keys.
+    //
+    // This epoch is the same solution already used for reviews and shipping: addressing product
+    // pages through a monotonically increasing epoch means one bump orphans every cached product
+    // page in O(1), with no key enumeration. Orphans are reclaimed by SizeLimit / absolute expiry.
+    // -----------------------------------------------------------------------
+    public const string CatalogEpoch = "store:catalog_epoch";
+
+    /// <summary>Key holding the current catalog-structure epoch.</summary>
+    public const string CatalogEpochKey = CatalogEpoch;
+
+    public static int CurrentCatalogEpoch(IMemoryCache cache) =>
+        cache.TryGetValue(CatalogEpochKey, out int epoch) ? epoch : 0;
+
+    /// <summary>
+    /// Storefront product detail key scoped to the shipping epoch <i>and</i> the catalog-structure
+    /// epoch. A bump of either epoch orphans every cached product page.
+    /// </summary>
+    public static string CatalogScopedStorefrontProduct(
+        string slug, int catalogEpoch, int shippingEpoch)
+        => $"{StorefrontProductPrefix}{NormaliseSlug(slug)}|c{catalogEpoch}e{shippingEpoch}";
 
     public static string StorefrontProduct(string slug) =>
         $"{StorefrontProductPrefix}{NormaliseSlug(slug)}";

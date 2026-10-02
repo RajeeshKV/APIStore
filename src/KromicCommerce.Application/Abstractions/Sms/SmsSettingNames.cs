@@ -4,16 +4,24 @@ namespace KromicCommerce.Application.Abstractions.Sms;
 /// The setting names each SMS provider accepts, and which of them are required.
 /// </summary>
 /// <remarks>
-/// Used to validate an administrator's configuration write. Without it, a misspelled key was
-/// stored, reported as saved, and then never read — the admin screen looked configured while
-/// sends failed on missing credentials. Keeping the list here, next to the provider set, means
-/// adding a gateway means extending one table rather than hunting down every validation site.
-///
+/// <para>
 /// Names match the corresponding <c>*Options</c> property on the Infrastructure options class
 /// for that provider.
+/// </para>
+/// <para>
+/// The key list is derived from <see cref="SmsProviderFieldSchema"/> rather than maintained
+/// separately, so a field that is rendered by the admin form is by construction a field that is
+/// accepted on save. The two tables used to be independent, which is how a setting could exist in
+/// the documentation while the validator rejected it.
+/// </para>
 /// </remarks>
 public static class SmsSettingNames
 {
+    // ---------------------------------------------------------------------
+    // Key names. These match the corresponding options-class property names and
+    // are used as the wire keys for PUT /admin/integrations/sms.
+    // ---------------------------------------------------------------------
+
     /// <summary>API key / token. Present for every gateway.</summary>
     public const string ApiKey = "ApiKey";
 
@@ -27,8 +35,9 @@ public static class SmsSettingNames
     public const string MessagingServiceSid = "MessagingServiceSid";
 
     /// <summary>
-    /// Preferred OTP route, or the single transactional route for gateways with no native OTP.
-    /// Retained because administrators may already have saved it against 2Factor.
+    /// Legacy single-route name, retained because administrators may already have saved it against
+    /// 2Factor before the native/transactional split. Honoured as an alias for
+    /// <see cref="OtpPath"/> so upgrading does not silently point them at a different route.
     /// </summary>
     public const string SendPath = "SendPath";
 
@@ -49,41 +58,32 @@ public static class SmsSettingNames
     /// </summary>
     public const string DeliveryMode = "DeliveryMode";
 
-    private static readonly IReadOnlyDictionary<SmsProviderKind, string[]> Optional =
+    /// <summary>
+    /// Extra keys accepted for a provider but not rendered as inputs, because they are legacy
+    /// aliases rather than something an administrator should newly configure.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<SmsProviderKind, string[]> Aliases =
         new Dictionary<SmsProviderKind, string[]>
         {
-            [SmsProviderKind.TwoFactor] =
-            [
-                SenderId, BaseUrl, DeliveryMode,
-                SendPath, OtpPath, TransactionalPath,
-                ApiKeyHeader, TemplateNameField, Channel,
-                OtpVariableName, ExpiryVariableName
-            ],
-            [SmsProviderKind.Free2Sms] = [SenderId, BaseUrl, Route, DeliveryMode],
-            [SmsProviderKind.Twilio] =
-                [MessagingServiceSid, BaseUrl, SenderId, DeliveryMode, MessagingBaseUrl, MessagingPath]
+            [SmsProviderKind.TwoFactor] = [SendPath]
         };
-
-    private static readonly IReadOnlyDictionary<SmsProviderKind, string[]> RequiredSettings =
-        new Dictionary<SmsProviderKind, string[]>
-        {
-            [SmsProviderKind.TwoFactor] = [ApiKey],
-            [SmsProviderKind.Free2Sms] = [ApiKey, SenderId],
-            [SmsProviderKind.Twilio] = [AccountSid, AuthToken, ServiceSid]
-        };
-
-    /// <summary>Every setting name accepted for <paramref name="provider"/>, required included.</summary>
-    public static IReadOnlyList<string> All(SmsProviderKind provider) =>
-        Required(provider).Concat(Optional[provider]).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
     /// <summary>Settings without which the provider cannot send. Required when SMS is enabled.</summary>
     public static IReadOnlyList<string> Required(SmsProviderKind provider)
-        => RequiredSettings.TryGetValue(provider, out var required) ? required : [];
+        => SmsProviderFieldSchema.For(provider).RequiredSettings;
+
+    /// <summary>Every setting name accepted for <paramref name="provider"/>, required included.</summary>
+    public static IReadOnlyList<string> All(SmsProviderKind provider)
+    {
+        var fields = SmsProviderFieldSchema.For(provider).Settings.Select(f => f.Key).ToList();
+
+        if (Aliases.TryGetValue(provider, out var aliases))
+            fields.AddRange(aliases);
+
+        return fields.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
 
     /// <summary>True when <paramref name="name"/> is a real setting for the provider, ignoring case.</summary>
     public static bool IsKnown(SmsProviderKind provider, string? name)
-        => name is not null
-           && Optional.TryGetValue(provider, out var optional)
-           && (Required(provider).Contains(name.Trim(), StringComparer.OrdinalIgnoreCase)
-               || optional.Contains(name.Trim(), StringComparer.OrdinalIgnoreCase));
+        => !string.IsNullOrWhiteSpace(name) && All(provider).Contains(name.Trim(), StringComparer.OrdinalIgnoreCase);
 }

@@ -152,7 +152,7 @@ public sealed class SmsSettingNamesTests
     [InlineData(SmsProviderKind.TwoFactor, "SendPath")]
     [InlineData(SmsProviderKind.Twilio, "SenderId")]
     [InlineData(SmsProviderKind.Twilio, "MessagingPath")]
-    [InlineData(SmsProviderKind.Free2Sms, "DeliveryMode")]
+    [InlineData(SmsProviderKind.Twilio, "MessagingBaseUrl")]
     public void Accepts_the_new_route_and_template_settings(SmsProviderKind provider, string name)
         => SmsSettingNames.IsKnown(provider, name).Should().BeTrue();
 
@@ -162,6 +162,9 @@ public sealed class SmsSettingNamesTests
     [InlineData(SmsProviderKind.Twilio, "OtpPath")]               // real, but only for 2Factor
     [InlineData(SmsProviderKind.Free2Sms, "OtpPath")]
     [InlineData(SmsProviderKind.Free2Sms, "MessagingPath")]
+    // Free2Sms publishes no OTP endpoint, so a delivery mode would be a choice with no meaning.
+    // The UI must not offer it, and the server must not accept it.
+    [InlineData(SmsProviderKind.Free2Sms, "DeliveryMode")]
     public void Still_rejects_misspelled_and_cross_provider_names(SmsProviderKind provider, string name)
         => SmsSettingNames.IsKnown(provider, name).Should().BeFalse();
 

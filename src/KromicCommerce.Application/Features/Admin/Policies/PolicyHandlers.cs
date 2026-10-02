@@ -1,3 +1,4 @@
+using KromicCommerce.Application.Caching;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace KromicCommerce.Application.Features.Admin.Policies;
@@ -21,7 +22,10 @@ internal static class PolicyMapper
 internal sealed class GetPublicPoliciesHandler(IApplicationDbContext db, IMemoryCache cache)
     : IQueryHandler<GetPublicPoliciesQuery, IReadOnlyList<StorePolicyResponse>>
 {
-    private const string CacheKey = "store:policies:public";
+    // The shared constant, not a literal. A literal here would still match today, but if the
+    // constant were ever changed the writer and the invalidator would drift apart and published
+    // policies would go stale with nothing to indicate why.
+    private const string CacheKey = CatalogCacheKeys.PublicPolicies;
 
     public async Task<Result<IReadOnlyList<StorePolicyResponse>>> Handle(
         GetPublicPoliciesQuery query, CancellationToken ct)
@@ -80,7 +84,7 @@ internal sealed class UpsertStorePolicyHandler(IApplicationDbContext db, IMemory
         if (cmd.IsPublished) policy.Publish(); else policy.Unpublish();
 
         await db.SaveChangesAsync(ct);
-        cache.Remove("store:policies:public");
+        cache.Remove(CatalogCacheKeys.PublicPolicies);
         return Result.Success(PolicyMapper.Map(policy));
     }
 }
@@ -96,7 +100,7 @@ internal sealed class DeleteStorePolicyHandler(IApplicationDbContext db, IMemory
 
         db.StorePolicies.Remove(policy);
         await db.SaveChangesAsync(ct);
-        cache.Remove("store:policies:public");
+        cache.Remove(CatalogCacheKeys.PublicPolicies);
         return Result.Success();
     }
 }

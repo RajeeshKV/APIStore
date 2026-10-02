@@ -48,15 +48,25 @@ public sealed class PaymentRefundSchemaTests(DatabaseFixture db)
     /// <summary>
     /// The index on ProviderRefundId makes "has this payment already been refunded?" cheap,
     /// which the cancellation flow asks on every attempt.
+    ///
+    /// Asserted on the indexed COLUMN rather than the index name. The name is an implementation
+    /// detail — the mapping deliberately abbreviates it to ix_payments_provider_refund — so a
+    /// name-based assertion would pass or fail on cosmetic refactors while telling us nothing
+    /// about whether the lookup the cancellation flow performs is actually indexed.
     /// </summary>
     [SkippableFact]
     public async Task An_index_exists_on_Payment_ProviderRefundId()
     {
         await using var ctx = Db.CreateDbContext();
 
-        var indexes = await GetIndexNamesAsync(ctx, "payments");
+        var definitions = await ctx.Database.SqlQueryRaw<string>(
+            """
+            SELECT indexdef AS "Value"
+            FROM pg_indexes
+            WHERE tablename = 'payments'
+            """).ToListAsync();
 
-        indexes.Should().Contain(name => name.Contains("ProviderRefundId", StringComparison.Ordinal),
+        definitions.Should().Contain(def => def.Contains("ProviderRefundId", StringComparison.Ordinal),
             "the cancellation flow looks up refunds by provider refund id on every attempt");
     }
 
@@ -171,7 +181,7 @@ public sealed class PaymentRefundSchemaTests(DatabaseFixture db)
     {
         await using var ctx = Db.CreateDbContext();
         var product = SeedProduct(ctx);
-        var variant = ProductVariant.Create(product.Id, "SKU-BASE-CLASH", null);
+        var variant = ProductVariant.Create(product.Id, $"SKU-BASE-{Guid.NewGuid():N}", null);
         ctx.ProductVariants.Add(variant);
         ctx.InventoryItems.Add(InventoryItem.Create(product.Id, null, onHand: 10));
         await ctx.SaveChangesAsync();
@@ -283,7 +293,11 @@ public sealed class PaymentRefundSchemaTests(DatabaseFixture db)
 
     private static Product SeedProduct(AppDbContext ctx)
     {
-        var product = Product.Create("Schema Test", $"schema-{Guid.NewGuid():N}", "SKU-SCHEMA", 10m, null, null);
+        // The SKU must be unique per call, not just the slug. These tests share one database, and
+        // SKU is under a unique index, so a fixed value made every test after the first fail on
+        // ix_products_sku — masking the constraint each test was actually written to prove.
+        var product = Product.Create(
+            "Schema Test", $"schema-{Guid.NewGuid():N}", $"SKU-SCHEMA-{Guid.NewGuid():N}", 10m, null, null);
         ctx.Products.Add(product);
         return product;
     }

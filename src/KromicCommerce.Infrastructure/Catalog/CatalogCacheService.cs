@@ -37,7 +37,9 @@ internal sealed class CatalogCacheService(IMemoryCache cache) : ICatalogCacheSer
 
     public void InvalidateProduct(Guid productId) => cache.Remove(CacheKeys.Product(productId));
 
-    private const int MaxFeaturedLimit = 50;
+    // The featured-page limit cap lives in CatalogCacheKeys so that the query handler's clamp and
+    // the invalidation loop below cannot drift apart.
+    private const int MaxFeaturedLimit = CatalogCacheKeys.MaxFeaturedLimit;
 
     // -----------------------------------------------------------------------
     // Storefront catalog cache
@@ -106,13 +108,42 @@ internal sealed class CatalogCacheService(IMemoryCache cache) : ICatalogCacheSer
     {
         InvalidateBrands();
         InvalidateStorefrontBrands();
+        // Storefront product pages embed BrandName/BrandSlug, so renaming or deactivating a brand
+        // makes every cached product page wrong. The affected slugs are not knowable here, so the
+        // catalog epoch is bumped instead, orphaning all of them in O(1).
+        InvalidateCatalogStructure();
     }
 
     public void InvalidateCategoryGraph()
     {
         InvalidateCategories();
         InvalidateStorefrontCategories();
+        // Same reasoning as InvalidateBrandGraph: product pages embed CategoryName/CategorySlug.
+        InvalidateCatalogStructure();
     }
+
+    /// <summary>
+    /// Orphans every cached storefront product page and featured list.
+    /// </summary>
+    /// <remarks>
+    /// Used for mutations whose blast radius spans products that cannot be enumerated from the
+    /// cache alone — a brand or category rename or deactivation. Product pages embed the brand and
+    /// category names, so evicting only the brand/category lists would leave every product page
+    /// showing the old name until the entry's absolute expiry.
+    /// </remarks>
+    public void InvalidateCatalogStructure()
+    {
+        cache.Set(
+            CatalogCacheKeys.CatalogEpochKey,
+            GetCatalogEpoch() + 1,
+            new MemoryCacheEntryOptions { Size = 1 });
+
+        // The featured list is keyed per limit rather than through the epoch, so it is evicted
+        // explicitly here to keep the two mechanisms from diverging.
+        InvalidateStorefrontFeatured();
+    }
+
+    public int GetCatalogEpoch() => CatalogCacheKeys.CurrentCatalogEpoch(cache);
 
     public void InvalidateShippingConfiguration()
     {
@@ -132,14 +163,20 @@ internal sealed class CatalogCacheService(IMemoryCache cache) : ICatalogCacheSer
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// Removes every delivery-scoped variant of a storefront product key. Only the
-    /// current epoch's key can exist under normal operation, but removing the previously
-    /// scoped key too keeps the cache tight after an epoch bump.
+    /// Removes every known variant of a storefront product key — the unscoped key, plus the
+    /// shipping- and catalog-scoped keys for the current epochs.
     /// </summary>
+    /// <remarks>
+    /// Entries written under earlier epochs are already unreachable and are left to the cache's
+    /// size limit and absolute expiry rather than being enumerated and removed.
+    /// </remarks>
     private void RemoveStorefrontProduct(string? slug)
     {
         if (string.IsNullOrWhiteSpace(slug)) return;
+
         cache.Remove(CacheKeys.StorefrontProduct(slug));
         cache.Remove(CatalogCacheKeys.DeliveryScopedStorefrontProduct(slug, GetShippingEpoch()));
+        cache.Remove(
+            CatalogCacheKeys.CatalogScopedStorefrontProduct(slug, GetCatalogEpoch(), GetShippingEpoch()));
     }
 }
