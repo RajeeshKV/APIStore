@@ -266,13 +266,16 @@ var mine = result.Value.Where(s => TagOf(s.Title) == tag).ToList();
         public void InvalidateStorefrontProduct(string slug) { }
         public void InvalidateStorefrontFeatured() { }
         public void InvalidateCarousel() { }
+        public void InvalidatePublicPolicies() { }
         public void InvalidateProductReviews(Guid productId) { }
         public void InvalidateProductGraph() { }
         public void InvalidateProductGraph(Guid productId, string? slug) { }
         public void InvalidateStockGraph(string? slug) { }
         public void InvalidateBrandGraph() { }
-        public void InvalidateCategoryGraph() { }
+public void InvalidateCategoryGraph() { }
+        public void InvalidateCatalogStructure() { }
         public void InvalidateShippingConfiguration() { }
+        public int GetCatalogEpoch() => 0;
         public int GetShippingEpoch() => 0;
     }
 }

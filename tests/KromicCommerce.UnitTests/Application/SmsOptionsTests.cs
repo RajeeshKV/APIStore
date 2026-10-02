@@ -1,3 +1,7 @@
+using KromicCommerce.Application.Abstractions.Sms;
+using KromicCommerce.Domain.Sms;
+using KromicCommerce.Infrastructure.Configuration;
+
 namespace KromicCommerce.UnitTests.Application;
 
 public sealed class SmsOptionsTests
@@ -8,19 +12,19 @@ public sealed class SmsOptionsTests
         {
             Enabled = true,
             Provider = "2Factor",
-            TwoFactor = new TwoFactorOptions { ApiKey = "k" }
+            TwoFactor = new TwoFactorOptions { ApiKey = "k", TemplateName = "LOGIN_OTP" }
         },
         SmsProviderKind.Free2Sms => new SmsOptions
         {
             Enabled = true,
             Provider = "Free2Sms",
-            Free2Sms = new Free2SmsOptions { ApiKey = "k", SenderId = "F2SMS" }
+            Free2Sms = new Free2SmsOptions { ApiKey = "k", SenderId = "F2SMS", MessageTemplate = "Your code is {{OTP}}" }
         },
         SmsProviderKind.Twilio => new SmsOptions
         {
             Enabled = true,
             Provider = "Twilio",
-            Twilio = new TwilioOptions { AccountSid = "AC", AuthToken = "t", ServiceSid = "VA" }
+            Twilio = new TwilioOptions { AccountSid = "AC", AuthToken = "t", FromNumber = "+15550000000" }
         },
         _ => new SmsOptions()
     };
@@ -32,7 +36,6 @@ public sealed class SmsOptionsTests
     [InlineData("Free2SMS", SmsProviderKind.Free2Sms)]
     [InlineData("free2sms", SmsProviderKind.Free2Sms)]
     [InlineData("Twilio", SmsProviderKind.Twilio)]
-    [InlineData("twilio-verify", SmsProviderKind.Twilio)]
     public void Provider_name_parsing_is_case_and_whitespace_insensitive(string name, SmsProviderKind expected)
         => new SmsOptions { Provider = name }.SelectedProvider.Should().Be(expected);
 
@@ -78,25 +81,40 @@ public sealed class SmsOptionsTests
         {
             Enabled = true,
             Provider = "Twilio",
-            Twilio = new TwilioOptions { AccountSid = "AC", AuthToken = "t" } // ServiceSid omitted
+            Twilio = new TwilioOptions { AccountSid = "AC", AuthToken = "t" } // FromNumber omitted
         };
 
         options.IsConfigured.Should().BeFalse();
-        options.GetMissingSettings().Should().BeEquivalentTo(["Sms:Twilio:ServiceSid"]);
+        options.GetMissingSettings().Should().BeEquivalentTo(["Sms:Twilio:FromNumber"]);
     }
 
     [Fact]
-    public void TwoFactor_only_requires_an_api_key()
+    public void TwoFactor_requires_api_key_and_template_name()
     {
         var options = new SmsOptions
         {
             Enabled = true,
             Provider = "2Factor",
-            TwoFactor = new TwoFactorOptions { ApiKey = "k" }
+            TwoFactor = new TwoFactorOptions { ApiKey = "k" } // TemplateName omitted
         };
 
-        options.IsConfigured.Should().BeTrue();
-        options.GetMissingSettings().Should().BeEmpty();
+        options.IsConfigured.Should().BeFalse();
+        options.GetMissingSettings().Should().BeEquivalentTo(["Sms:TwoFactor:TemplateName"]);
+    }
+
+    [Fact]
+    public void Free2Sms_requires_api_key_sender_id_and_message_template()
+    {
+        var options = new SmsOptions
+        {
+            Enabled = true,
+            Provider = "Free2Sms",
+            Free2Sms = new Free2SmsOptions { ApiKey = "k", SenderId = "F2SMS" } // MessageTemplate omitted
+        };
+
+        options.IsConfigured.Should().BeFalse();
+        options.GetMissingSettings().Should()
+            .BeEquivalentTo(["Sms:Free2Sms:MessageTemplate"]);
     }
 
     [Fact]
@@ -111,27 +129,9 @@ public sealed class SmsOptionsTests
     [Fact]
     public void Credentials_for_inactive_providers_are_ignored()
     {
-        // Twilio is selected and complete; Free2Sms has nothing. Only the selection matters.
         var options = Fully(SmsProviderKind.Twilio);
 
         options.IsConfigured.Should().BeTrue();
         options.GetMissingSettings().Should().BeEmpty();
-    }
-
-    [Fact]
-    public void Out_of_range_OTP_policy_is_clamped()
-    {
-        var policy = new SmsOtpPolicyOptions
-        {
-            ExpiryMinutes = 999,
-            ResendCooldownSeconds = -5,
-            MaxAttempts = 0,
-            Length = 3
-        };
-
-        policy.ClampedExpiryMinutes.Should().Be(60);
-        policy.ClampedResendCooldownSeconds.Should().Be(0);
-        policy.ClampedMaxAttempts.Should().Be(1);
-        policy.ClampedLength.Should().Be(4);
     }
 }

@@ -1,29 +1,35 @@
-using KromicCommerce.Application.Abstractions.Sms;
-
 namespace KromicCommerce.Infrastructure.Configuration;
 
 /// <summary>
 /// Root of the SMS configuration module.
-///
+/// </summary>
+/// <remarks>
+/// <para>
 /// SMS is OPTIONAL — the application must start and serve requests without it configured.
 /// When <see cref="Enabled"/> is false, or <see cref="Provider"/> is <c>None</c>, or the
 /// selected provider's credentials are missing, the system runs in a clearly reported
 /// "not configured" state: OTP delivery is refused with a business error and no other
 /// authentication method is affected.
-///
+/// </para>
+/// <para>
 /// Exactly one provider is active. Credentials for the other providers may be present in
 /// configuration but are never read — only <see cref="Provider"/> is resolved.
-/// </summary>
+/// </para>
+/// <para>
+/// OTP policy (expiry, resend cooldown, attempt limits, code length) is fixed application
+/// defaults defined in <see cref="KromicCommerce.Application.Options.SmsOtpDefaults"/>.
+/// It is not configurable from the SMS integration surface.
+/// </para>
+/// </remarks>
 /// <example>
 /// <code>
 /// Sms:
 ///   Enabled: true
 ///   Provider: Twilio          # 2Factor | Free2SMS | Twilio
 ///   RequireVerifiedPhoneAtCheckout: true
-///   Otp: { ExpiryMinutes: 10, ResendCooldownSeconds: 60, MaxAttempts: 5, Length: 4 }
-///   TwoFactor: { ApiKey: "...", SenderId: "STORE" }
-///   Free2Sms: { ApiKey: "...", SenderId: "F2SMS" }
-///   Twilio:   { AccountSid: "AC...", AuthToken: "...", ServiceSid: "VA..." }
+///   TwoFactor: { ApiKey: "...", TemplateName: "LOGIN_OTP" }
+///   Free2Sms: { ApiKey: "...", SenderId: "F2SMS", MessageTemplate: "Your code is {{OTP}}" }
+///   Twilio:   { AccountSid: "AC...", AuthToken: "...", FromNumber: "+1..." }
 /// </code>
 /// </example>
 public sealed class SmsOptions
@@ -46,9 +52,6 @@ public sealed class SmsOptions
     /// configured, because verification requires delivery.
     /// </summary>
     public bool RequireVerifiedPhoneAtCheckout { get; init; }
-
-    /// <summary>OTP policy applied to every purpose.</summary>
-    public SmsOtpPolicyOptions Otp { get; init; } = new();
 
     public TwoFactorOptions TwoFactor { get; init; } = new();
     public Free2SmsOptions Free2Sms { get; init; } = new();
@@ -73,17 +76,19 @@ public sealed class SmsOptions
         {
             case SmsProviderKind.TwoFactor:
                 if (string.IsNullOrWhiteSpace(TwoFactor.ApiKey)) missing.Add("Sms:TwoFactor:ApiKey");
+                if (string.IsNullOrWhiteSpace(TwoFactor.TemplateName)) missing.Add("Sms:TwoFactor:TemplateName");
                 break;
 
             case SmsProviderKind.Free2Sms:
                 if (string.IsNullOrWhiteSpace(Free2Sms.ApiKey)) missing.Add("Sms:Free2Sms:ApiKey");
                 if (string.IsNullOrWhiteSpace(Free2Sms.SenderId)) missing.Add("Sms:Free2Sms:SenderId");
+                if (string.IsNullOrWhiteSpace(Free2Sms.MessageTemplate)) missing.Add("Sms:Free2Sms:MessageTemplate");
                 break;
 
             case SmsProviderKind.Twilio:
                 if (string.IsNullOrWhiteSpace(Twilio.AccountSid)) missing.Add("Sms:Twilio:AccountSid");
                 if (string.IsNullOrWhiteSpace(Twilio.AuthToken)) missing.Add("Sms:Twilio:AuthToken");
-                if (string.IsNullOrWhiteSpace(Twilio.ServiceSid)) missing.Add("Sms:Twilio:ServiceSid");
+                if (string.IsNullOrWhiteSpace(Twilio.FromNumber)) missing.Add("Sms:Twilio:FromNumber");
                 break;
 
             case SmsProviderKind.None:

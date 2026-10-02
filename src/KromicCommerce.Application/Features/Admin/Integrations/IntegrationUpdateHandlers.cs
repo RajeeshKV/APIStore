@@ -1,4 +1,6 @@
 using System.Text.Json;
+using KromicCommerce.Application.Options;
+using Microsoft.Extensions.Options;
 
 namespace KromicCommerce.Application.Features.Admin.Integrations;
 
@@ -31,12 +33,6 @@ public sealed record UpdateSmsConfigCommand(
 /// Restricts an SMS configuration write to the three supported gateways and to the setting
 /// names that actually apply to the selected one.
 /// </summary>
-/// <remarks>
-/// The endpoint previously accepted any string as the provider name and any dictionary as its
-/// settings, so a request could name a gateway that does not exist, or carry misspelled setting
-/// keys that were silently stored and never used — the save reported success and nothing changed.
-/// Both are now rejected with a message naming the valid values.
-/// </remarks>
 internal sealed class UpdateSmsConfigValidator : AbstractValidator<UpdateSmsConfigCommand>
 {
     public UpdateSmsConfigValidator()
@@ -47,18 +43,17 @@ internal sealed class UpdateSmsConfigValidator : AbstractValidator<UpdateSmsConf
                 "Provider must be one of: " +
                 string.Join(", ", SmsProviderKinds.Selectable.Select(p => p.ToName())) + ".");
 
+        // Only setting keys declared by the selected provider's schema are accepted. Unknown or
+        // misspelled keys are rejected so the save cannot store credentials under a typo that the
+        // adapter will never read.
         RuleFor(x => x.ProviderSettings)
             .Must((cmd, settings) => HasOnlyKnownKeys(cmd, settings))
             .WithMessage(
                 "Provider settings must contain only the setting names the selected provider " +
-                "supports, and every required one of them.")
+                "supports.")
             .When(x => SmsProviderKinds.Parse(x.Provider) is not null);
 
-        // Enforces exactly what GET /admin/integrations/sms/providers advertises: the length
-        // limits, the enumerated values, and the endpoint-path shape. Previously nothing checked
-        // these, so a client could store a 4000-character delivery mode or a route that 2Factor
-        // would reject on every send. The frontend is expected to pre-validate from the schema,
-        // but the server is what actually enforces it.
+        // Each value is validated against the descriptor the admin form was rendered from.
         RuleFor(x => x.ProviderSettings)
             .Must((cmd, settings) => HasValidValues(cmd, settings))
             .WithMessage(
@@ -71,9 +66,6 @@ internal sealed class UpdateSmsConfigValidator : AbstractValidator<UpdateSmsConf
             .WithMessage("A setting value must not exceed 2000 characters.");
     }
 
-    /// <summary>
-    /// Each supplied setting must satisfy the descriptor the admin form was rendered from.
-    /// </summary>
     private static bool HasValidValues(
         UpdateSmsConfigCommand command, Dictionary<string, string>? settings)
     {
@@ -89,7 +81,7 @@ internal sealed class UpdateSmsConfigValidator : AbstractValidator<UpdateSmsConf
     /// <summary>
     /// Every submitted key must be a real setting for the selected provider, and every required
     /// setting for that provider must be present with a non-empty value. Case is ignored, so
-    /// "apikey" and "ApiKey" behave the same, which is what an admin form should do.
+    /// "apikey" and "ApiKey" behave the same.
     ///
     /// When SMS is being disabled, only the key names are checked: turning SMS off must not
     /// require re-supplying credentials that were never saved in the first place.
@@ -109,9 +101,6 @@ internal sealed class UpdateSmsConfigValidator : AbstractValidator<UpdateSmsConf
         if (!command.Enabled)
             return true;
 
-        // Case-insensitive on purpose: the name check above accepts "apikey" as readily as
-        // "ApiKey", so this lookup must too — otherwise a lower-cased admin form would be told
-        // a required setting is missing while the names had already been accepted.
         var supplied = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         foreach (var (key, value) in settings ?? [])
             supplied[key.Trim()] = value;
@@ -127,14 +116,6 @@ public sealed record UpdateEmailConfigCommand(
 
 /// <summary>
 /// Validation for the integrations email configuration.
-///
-/// The endpoint took a raw <c>string Mode</c> with no validation, so any typo was accepted and
-/// written into the audit record. Mode is parsed against the real <see cref="EmailMode"/> here,
-/// and the sender address is required only when the store actually sends from its own account
-/// — matching the rule enforced on the settings endpoint so the two screens cannot disagree.
-///
-/// The API key is optional: it is a write-once credential, and an update that only toggles a
-/// flag or renames the sender must not have to resend it.
 /// </summary>
 internal sealed class UpdateEmailConfigValidator : AbstractValidator<UpdateEmailConfigCommand>
 {
@@ -193,18 +174,14 @@ internal sealed class UpdateRazorpayConfigHandler(
             return Result.Failure(Error.NotFound(
                 "BUSINESS_SETTINGS_NOT_FOUND", "Business settings have not been initialised."));
 
-        // Encrypt before persistence — never store plaintext secrets
         var encryptedSecret = secrets.Protect(cmd.KeySecret);
         var encryptedWebhook = secrets.Protect(cmd.WebhookSecret);
 
-        // Persist to BusinessSettings — authoritative configuration store.
-        // Status endpoint reads from here; payment flow reads from here.
         settings.UpdatePaymentCredentials(cmd.KeyId, encryptedSecret, encryptedWebhook, cmd.Enabled);
 
         await db.SaveChangesAsync(ct);
         settingsService.Invalidate();
 
-        // Audit-only Outbox event — NOT a config store, credentials excluded
         db.OutboxEvents.Add(OutboxEvent.Create("RazorpayConfigurationUpdated",
             JsonSerializer.Serialize(new { cmd.Enabled, ConfiguredAt = DateTime.UtcNow })));
         await db.SaveChangesAsync(ct);
@@ -231,24 +208,16 @@ internal sealed class UpdateGoogleOAuthConfigHandler(
             return Result.Failure(Error.NotFound(
                 "BUSINESS_SETTINGS_NOT_FOUND", "Business settings have not been initialised."));
 
-        // Encrypt the secret before it ever touches the database — never store plaintext
         var encryptedSecret = secrets.Protect(cmd.ClientSecret);
-
-        // Compute the redirect URI from the backend's configured public base URL.
-        // The admin must register this exact URL in Google Cloud Console.
-        // It is derived from App__ApiBaseUrl — deterministic, not user-supplied.
         var redirectUri = appOptions.Value.GoogleRedirectUri;
 
-        // Persist to BusinessSettings — authoritative configuration store.
-        // Status endpoint reads from here; OAuth flow reads from here.
         settings.UpdateGoogleCredentials(cmd.ClientId, encryptedSecret, redirectUri, cmd.Enabled);
 
         await db.SaveChangesAsync(ct);
         settingsService.Invalidate();
 
-        // Publish audit-only Outbox event — NOT a config store, credentials excluded
         db.OutboxEvents.Add(OutboxEvent.Create("GoogleOAuthConfigurationUpdated",
-            System.Text.Json.JsonSerializer.Serialize(new
+            JsonSerializer.Serialize(new
             {
                 cmd.Enabled,
                 ConfiguredAt = DateTime.UtcNow
@@ -264,30 +233,22 @@ internal sealed class UpdateGoogleOAuthConfigHandler(
 /// Writes the administrator's SMS provider selection and credentials.
 /// </summary>
 /// <remarks>
-/// This handler used to do nothing but append an audit OutboxEvent. It accepted any provider
-/// name, never persisted the selection or the settings, and serialised the raw
-/// <c>ProviderSettings</c> — which carry API keys and auth tokens — straight into the event
-/// payload, so every save wrote live credentials into a table intended for audit records. It
-/// also meant the admin screen reported a configuration that had no effect on delivery.
-///
-/// The selection is now persisted (encrypted, per setting) and read back by the provider
+/// The selection is persisted (encrypted, per setting) and read back by the provider
 /// adapters at send time, so the save actually changes behaviour. The Outbox event records the
-/// selection only.
+/// selection only — never the credential values.
 /// </remarks>
 internal sealed class UpdateSmsConfigHandler(
     IApplicationDbContext db,
     ISecretProtectionService secrets,
     ISmsProviderFactory smsProviderFactory,
     ISmsProviderSettings savedSettings,
+    IOptions<SmsPolicyOptions> smsPolicy,
     ILogger<UpdateSmsConfigHandler> logger)
     : ICommandHandler<UpdateSmsConfigCommand, IntegrationStatusResponse>
 {
     public async Task<Result<IntegrationStatusResponse>> Handle(
         UpdateSmsConfigCommand cmd, CancellationToken ct)
     {
-        // The validator rejects unsupported names, but the handler must not depend on a
-        // validator having run: parsing again here keeps a direct call from writing a provider
-        // that does not exist.
         var provider = SmsProviderKinds.Parse(cmd.Provider);
         if (provider is not { } kind)
         {
@@ -312,9 +273,6 @@ internal sealed class UpdateSmsConfigHandler(
             config.Configure(cmd.Enabled, kind, protectedSettings);
         }
 
-        // Audit only — the setting NAMES are recorded, never the values. The raw
-        // ProviderSettings used to be serialised straight into this payload, writing live API
-        // keys and auth tokens into a table meant for audit records.
         db.OutboxEvents.Add(OutboxEvent.Create("SmsConfigurationUpdated",
             JsonSerializer.Serialize(new
             {
@@ -324,32 +282,20 @@ internal sealed class UpdateSmsConfigHandler(
                 ConfiguredAt = DateTime.UtcNow
             })));
 
-        // ONE SaveChanges, which EF wraps in a single implicit transaction. The configuration
-        // row and its audit event therefore commit together or not at all. Two calls would let
-        // the configuration commit while the event failed, leaving a change with no audit trail
-        // and no way to tell a partial write from a successful one.
         await db.SaveChangesAsync(ct);
 
         logger.LogInformation("SMS configuration saved. Provider: {Provider} Enabled: {Enabled}",
             kind.ToName(), cmd.Enabled);
 
-        // Return the resulting status rather than a bare success, so the admin form knows what was
-        // actually stored without a second request. Enabling an incomplete configuration is
-        // rejected by the validator, but a staged (enabled: false) save returns isConfigured:
-        // false here — "saved" and "able to send" are genuinely different states.
         var status = await SmsIntegrationStatusBuilder.Build(
-            smsProviderFactory, savedSettings, ct);
+            smsProviderFactory, savedSettings, smsPolicy.Value.RequireVerifiedPhoneAtCheckout, ct);
 
         return Result.Success(status);
     }
 
     /// <summary>
-    /// Encrypts every submitted setting value.
-    ///
-    /// Operational settings (base URL, route, variable names) are protected alongside the
-    /// credentials rather than stored in the clear. They are not secrets, but a single uniform
-    /// rule means the read path has one behaviour and there is no class of configuration value
-    /// that is quietly handled differently depending on which field it is.
+    /// Encrypts every submitted setting value. Only provider-specific config keys are encrypted
+    /// and stored — never provider HTTP implementation details like endpoint paths or variable names.
     /// </summary>
     private Dictionary<string, string> ProtectSettings(
         SmsProviderKind provider,
@@ -366,11 +312,7 @@ internal sealed class UpdateSmsConfigHandler(
                 continue;
 
             if (!SmsSettingNames.IsKnown(provider, key))
-            {
-                // Unreachable through the API, which validates first. Ignored rather than
-                // persisted so an internal caller cannot smuggle an unknown key into storage.
                 continue;
-            }
 
             result[key.Trim()] = secrets.Protect(value.Trim());
         }

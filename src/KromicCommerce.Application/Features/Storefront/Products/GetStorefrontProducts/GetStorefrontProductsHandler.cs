@@ -124,6 +124,7 @@ internal sealed class GetStorefrontProductsHandler(
             {
                 p.Id, p.Name, p.Slug, p.ShortDescription,
                 p.Price, p.CompareAtPrice, p.IsFeatured,
+                p.RatingAverage, p.RatingCount,
                 p.CategoryId,
                 CategoryName = p.Category != null ? p.Category.Name : null,
                 CategorySlug = p.Category != null ? p.Category.Slug : null,
@@ -163,7 +164,7 @@ internal sealed class GetStorefrontProductsHandler(
                     availability, CanPurchase: !isOut,
                     p.CategoryId, p.CategoryName, p.CategorySlug,
                     p.BrandId, p.BrandName, p.BrandSlug,
-                    p.IsFeatured);
+                    p.IsFeatured, p.RatingAverage, p.RatingCount);
             }
 
             // No inventory record → untracked, assumed in stock
@@ -174,7 +175,7 @@ internal sealed class GetStorefrontProductsHandler(
                 StockAvailability.InStock, CanPurchase: true,
                 p.CategoryId, p.CategoryName, p.CategorySlug,
                 p.BrandId, p.BrandName, p.BrandSlug,
-                p.IsFeatured);
+                p.IsFeatured, p.RatingAverage, p.RatingCount);
         }).ToList();
 
         logger.LogDebug("Storefront product listing: page={Page} pageSize={PageSize} total={Total}",

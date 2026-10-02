@@ -59,8 +59,11 @@ internal sealed class SetStockHandler(
         }
 
         await db.SaveChangesAsync(cancellationToken);
+
+        // One graph call, not individual keys. The stock graph covers both projections that embed
+        // availability (the storefront product page and the featured list); counts are unaffected
+        // by a stock change, so the brand/category ProductCount lists stay valid.
         cache.InvalidateStockGraph(productSlug);
-        cache.InvalidateProduct(command.ProductId);
 
         if (inventory.IsLowStock)
             logger.LogWarning("Low stock detected. ProductId: {ProductId}, Available: {Available}",
@@ -110,7 +113,6 @@ internal sealed class AdjustStockHandler(
 
         await db.SaveChangesAsync(cancellationToken);
         cache.InvalidateStockGraph(productSlug);
-        cache.InvalidateProduct(command.ProductId);
 
         logger.LogInformation(
             "Stock adjusted. ProductId: {ProductId} Delta: {Delta} Reason: {Reason}",

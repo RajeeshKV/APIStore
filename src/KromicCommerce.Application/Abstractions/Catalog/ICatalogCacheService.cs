@@ -41,6 +41,11 @@ public interface ICatalogCacheService
     void InvalidateCarousel();
 
     /// <summary>
+    /// Invalidates the cached list of published store policies shown to customers.
+    /// </summary>
+    void InvalidatePublicPolicies();
+
+    /// <summary>
     /// Invalidates every cached public review page for one product.
     /// Call after any review write that can change what the public list should return: submit,
     /// edit, delete, moderate, or a helpful vote (which changes the "most helpful" ordering).
@@ -79,6 +84,24 @@ public interface ICatalogCacheService
 
     /// <summary>Invalidates both the admin and storefront category projections.</summary>
     void InvalidateCategoryGraph();
+
+    /// <summary>
+    /// Orphans every cached storefront product page and featured list.
+    ///
+    /// Use for mutations whose blast radius spans products that cannot be enumerated from the
+    /// cache alone — a brand or category rename or deactivation, since product pages embed the
+    /// brand and category names. Evicting only the brand/category lists would leave every cached
+    /// product page showing the old name until its absolute expiry.
+    ///
+    /// Achieved by bumping the catalog epoch (see <c>CatalogCacheKeys.CatalogEpochKey</c>), so
+    /// cost is O(1) rather than proportional to the number of cached products. Already called by
+    /// <c>InvalidateBrandGraph</c> and <c>InvalidateCategoryGraph</c>; call it directly only when
+    /// product pages must be invalidated without touching the brand or category lists themselves.
+    /// </summary>
+    void InvalidateCatalogStructure();
+
+    /// <summary>Current catalog epoch, used to build catalog-scoped keys.</summary>
+    int GetCatalogEpoch();
 
     /// <summary>
     /// Invalidates every cache entry that embeds data derived from the shipping /

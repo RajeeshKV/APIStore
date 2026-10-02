@@ -177,6 +177,10 @@ internal sealed class GetStorefrontProductBySlugHandler(
             product.CategoryId, product.Category?.Name, product.Category?.Slug,
             product.BrandId, product.Brand?.Name, product.Brand?.Slug,
             product.IsFeatured,
+            // Denormalised on the product row — no aggregate query for the page. Recalculated by
+            // ProductReviewRatingRecalculator whenever the published review set changes, which also
+            // invalidates this cached response.
+            product.RatingAverage, product.RatingCount,
             images, attributes, variants,
             estimate,
             product.MetaTitle, product.MetaDescription, product.MetaKeywords);

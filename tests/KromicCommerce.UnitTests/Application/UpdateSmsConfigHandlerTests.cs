@@ -249,6 +249,7 @@ private static (UpdateSmsConfigHandler Handler, Mock<IApplicationDbContext> Db, 
         var handler = new UpdateSmsConfigHandler(
             db.Object, secrets.Object, factory,
             new Mock<ISmsProviderSettings>().Object,
+            SmsTestDoubles.Policy(),
             NullLogger<UpdateSmsConfigHandler>.Instance);
 
         return (handler, db, configs, events, saves);

@@ -89,14 +89,15 @@ internal sealed class GetEmailIntegrationStatusHandler(
 /// </summary>
 internal sealed class GetSmsIntegrationStatusHandler(
     ISmsProviderFactory smsProviderFactory,
-    ISmsProviderSettings savedSettings)
+    ISmsProviderSettings savedSettings,
+    IOptions<SmsPolicyOptions> smsPolicy)
     : IQueryHandler<GetSmsIntegrationStatusQuery, IntegrationStatusResponse>
 {
     public async Task<Result<IntegrationStatusResponse>> Handle(
         GetSmsIntegrationStatusQuery query, CancellationToken cancellationToken)
         => Result.Success(
             await SmsIntegrationStatusBuilder.Build(
-                smsProviderFactory, savedSettings, cancellationToken));
+                smsProviderFactory, savedSettings, smsPolicy.Value.RequireVerifiedPhoneAtCheckout, cancellationToken));
 }
 
 /// <summary>
@@ -113,20 +114,16 @@ internal static class SmsIntegrationStatusBuilder
     internal static async Task<IntegrationStatusResponse> Build(
         ISmsProviderFactory smsProviderFactory,
         ISmsProviderSettings savedSettings,
+        bool requireVerifiedPhoneAtCheckout,
         CancellationToken ct)
     {
         var status = await smsProviderFactory.GetStatusAsync(ct);
         var saved = await savedSettings.GetEffectiveAsync(ct);
 
-        // Missing settings are configuration key names, never values — safe to surface and
-        // actionable for whoever is setting the provider up.
         var publicFields = new Dictionary<string, string>
         {
-            // Provider identity belongs here, on the admin surface, and not on the customer-facing
-            // verification status endpoint where it is irrelevant to the customer and leaks
-            // infrastructure detail.
             ["provider"] = status.Provider.ToName(),
-            ["requireVerifiedPhoneAtCheckout"] = status.RequiresVerification.ToString(),
+            ["requireVerifiedPhoneAtCheckout"] = requireVerifiedPhoneAtCheckout.ToString(),
             ["selectableProviders"] = string.Join(", ",
                 SmsProviderKinds.Selectable.Select(p => p.ToName()))
         };

@@ -60,6 +60,8 @@ internal sealed class CatalogCacheService(IMemoryCache cache) : ICatalogCacheSer
 
     public void InvalidateCarousel() => cache.Remove(CatalogCacheKeys.StorefrontCarousel);
 
+    public void InvalidatePublicPolicies() => cache.Remove(CatalogCacheKeys.PublicPolicies);
+
     public void InvalidateProductReviews(Guid productId)
     {
         // Epoch bump rather than key enumeration. IMemoryCache cannot prefix-delete, and one

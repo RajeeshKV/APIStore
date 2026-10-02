@@ -286,10 +286,14 @@ public sealed class OrderInventoryRestoreIdempotencyTests
         await restorer.InvalidateCachesAsync(affected, CancellationToken.None);
 
         _cache.Verify(c => c.InvalidateStockGraph("test-widget"), Times.Once);
-        _cache.Verify(c => c.InvalidateProduct(productId), Times.Once);
         // Brand/category counts are unaffected by a stock movement and must not be evicted.
         _cache.Verify(c => c.InvalidateBrandGraph(), Times.Never);
         _cache.Verify(c => c.InvalidateCategoryGraph(), Times.Never);
+        // The stock graph is the whole invalidation. Individual key removal is not used here:
+        // the admin per-product key is never written by any read path, so evicting it was a
+        // no-op that only obscured which projections actually embed availability.
+        _cache.Verify(c => c.InvalidateProduct(It.IsAny<Guid>()), Times.Never);
+        _cache.Verify(c => c.InvalidateProductGraph(It.IsAny<Guid>(), It.IsAny<string?>()), Times.Never);
     }
 
     /// <summary>
@@ -312,6 +316,7 @@ public sealed class OrderInventoryRestoreIdempotencyTests
         affected.Should().BeEmpty();
         _cache.Verify(c => c.InvalidateStockGraph(It.IsAny<string?>()), Times.Never);
         _cache.Verify(c => c.InvalidateProduct(It.IsAny<Guid>()), Times.Never);
+        _cache.Verify(c => c.InvalidateProductGraph(It.IsAny<Guid>(), It.IsAny<string?>()), Times.Never);
     }
 
     // -----------------------------------------------------------------------

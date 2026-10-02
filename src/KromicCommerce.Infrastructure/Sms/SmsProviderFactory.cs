@@ -8,31 +8,12 @@ namespace KromicCommerce.Infrastructure.Sms;
 /// Resolves the active provider from the administrator's saved configuration, falling back to
 /// deployment configuration only when nothing has been saved.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Single source of truth: a saved <c>sms_provider_configs</c> row decides which provider is
-/// active and whether SMS is enabled. <c>Sms:*</c> environment variables are the bootstrap for a
-/// deployment where the admin screen has never been used. The precedence is whole-row, never
-/// per-field, so the two can never disagree about the active provider.
-/// </para>
-/// <para>
-/// Selection is resolved per request rather than cached at startup, which is what lets an
-/// administrator switch or disable SMS and see it take effect immediately, with no restart.
-/// </para>
-/// <para>
-/// Unknown or removed provider names degrade to <see cref="SmsProviderKind.None"/> instead of
-/// throwing, so a typo in configuration can never turn into a runtime 500 on the OTP path.
-/// </para>
-/// </remarks>
 internal sealed class SmsProviderFactory(
     IOptions<SmsOptions> options,
     IOptions<TwoFactorOptions> twoFactor,
     IOptions<Free2SmsOptions> free2Sms,
     IOptions<TwilioOptions> twilio,
-    IOptions<SmsOtpPolicyOptions> otpPolicy,
     ISmsProviderSettings savedSettings,
-    ISmsTemplateStore templates,
-    ISmsOtpAuditSink audit,
     IHttpClientFactory httpClientFactory,
     ILoggerFactory loggerFactory) : ISmsProviderFactory
 {
@@ -71,15 +52,15 @@ internal sealed class SmsProviderFactory(
         return status.Provider switch
         {
             SmsProviderKind.TwoFactor => new TwoFactorProvider(
-                twoFactor, otpPolicy, saved, templates, audit, httpClientFactory,
+                twoFactor, saved, httpClientFactory,
                 loggerFactory.CreateLogger<TwoFactorProvider>()),
 
             SmsProviderKind.Free2Sms => new Free2SmsProvider(
-                free2Sms, otpPolicy, saved, templates, audit, httpClientFactory,
+                free2Sms, saved, httpClientFactory,
                 loggerFactory.CreateLogger<Free2SmsProvider>()),
 
             SmsProviderKind.Twilio => new TwilioProvider(
-                twilio, otpPolicy, saved, templates, audit, httpClientFactory,
+                twilio, saved, httpClientFactory,
                 loggerFactory.CreateLogger<TwilioProvider>()),
 
             _ => new NoOpSmsProvider()
@@ -95,7 +76,7 @@ internal sealed class SmsProviderFactory(
         foreach (var setting in SmsSettingNames.Required(provider))
         {
             if (string.IsNullOrWhiteSpace(Resolve(provider, setting, saved)))
-                yield return $"{SmsOptions.SectionName}:{provider}:{setting}";
+                yield return $"{SmsOptions.SectionName}:{provider.ToName()}:{setting}";
         }
     }
 
@@ -109,44 +90,26 @@ internal sealed class SmsProviderFactory(
     /// <summary>The deployment-configured value for a setting, used as the bootstrap default.</summary>
     private string? FromConfiguration(SmsProviderKind provider, string setting) => provider switch
     {
-        SmsProviderKind.TwoFactor => twoFactor.Value switch
+        SmsProviderKind.TwoFactor => setting switch
         {
-            var o when setting == SmsSettingNames.ApiKey => o.ApiKey,
-            var o when setting == SmsSettingNames.SenderId => o.SenderId,
-            var o when setting == SmsSettingNames.BaseUrl => o.BaseUrl,
-            var o when setting == SmsSettingNames.SendPath => o.OtpPath,
-            var o when setting == SmsSettingNames.OtpPath => o.OtpPath,
-            _ when setting == SmsSettingNames.TransactionalPath => twoFactor.Value.TransactionalPath,
-            _ when setting == SmsSettingNames.ApiKeyHeader => twoFactor.Value.ApiKeyHeader,
-            _ when setting == SmsSettingNames.TemplateNameField => twoFactor.Value.TemplateNameField,
-            _ when setting == SmsSettingNames.Channel => twoFactor.Value.Channel,
-            _ when setting == SmsSettingNames.OtpVariableName => twoFactor.Value.OtpVariableName,
-            _ when setting == SmsSettingNames.ExpiryVariableName => twoFactor.Value.ExpiryVariableName,
-            _ when setting == SmsSettingNames.DeliveryMode => twoFactor.Value.DeliveryMode.ToName(),
+            SmsSettingNames.ApiKey => twoFactor.Value.ApiKey,
+            SmsSettingNames.TemplateName => twoFactor.Value.TemplateName,
             _ => null
         },
 
-        SmsProviderKind.Free2Sms => free2Sms.Value switch
+        SmsProviderKind.Free2Sms => setting switch
         {
-            var o when setting == SmsSettingNames.ApiKey => o.ApiKey,
-            var o when setting == SmsSettingNames.SenderId => o.SenderId,
-            var o when setting == SmsSettingNames.BaseUrl => o.BaseUrl,
-            _ when setting == SmsSettingNames.Route => free2Sms.Value.Route,
-            _ when setting == SmsSettingNames.DeliveryMode => free2Sms.Value.DeliveryMode.ToName(),
+            SmsSettingNames.ApiKey => free2Sms.Value.ApiKey,
+            SmsSettingNames.SenderId => free2Sms.Value.SenderId,
+            SmsSettingNames.MessageTemplate => free2Sms.Value.MessageTemplate,
             _ => null
         },
 
-        SmsProviderKind.Twilio => twilio.Value switch
+        SmsProviderKind.Twilio => setting switch
         {
-            var o when setting == SmsSettingNames.AccountSid => o.AccountSid,
-            var o when setting == SmsSettingNames.AuthToken => o.AuthToken,
-            var o when setting == SmsSettingNames.ServiceSid => o.ServiceSid,
-            var o when setting == SmsSettingNames.MessagingServiceSid => o.MessagingServiceSid,
-            var o when setting == SmsSettingNames.SenderId => o.SenderId,
-            _ when setting == SmsSettingNames.BaseUrl => twilio.Value.BaseUrl,
-            _ when setting == SmsSettingNames.MessagingBaseUrl => twilio.Value.MessagingBaseUrl,
-            _ when setting == SmsSettingNames.MessagingPath => twilio.Value.MessagingPath,
-            _ when setting == SmsSettingNames.DeliveryMode => twilio.Value.DeliveryMode.ToName(),
+            SmsSettingNames.AccountSid => twilio.Value.AccountSid,
+            SmsSettingNames.AuthToken => twilio.Value.AuthToken,
+            SmsSettingNames.FromNumber => twilio.Value.FromNumber,
             _ => null
         },
 

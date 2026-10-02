@@ -1,5 +1,5 @@
-using KromicCommerce.Application.Abstractions.Sms;
 using KromicCommerce.Application.Features.Admin.SmsTemplates;
+using KromicCommerce.Contracts.Admin;
 using KromicCommerce.Domain.Sms;
 
 namespace KromicCommerce.UnitTests.Application.Sms;
@@ -23,9 +23,6 @@ public sealed class GetSmsProvidersHandlerTests
     {
         var providers = await ListAsync();
 
-        // Guards a real regression: All was once an eagerly initialised static field declared
-        // above the individual schemas, so it captured an array of nulls and this endpoint
-        // answered with providers whose name was null.
         providers.Should().HaveCount(3);
         providers.Should().OnlyContain(p => p.Name != null);
         providers.Select(p => p.Name).Should()
@@ -34,45 +31,47 @@ public sealed class GetSmsProvidersHandlerTests
     }
 
     [Fact]
-    public async Task TwoFactor_advertises_the_inputs_the_user_actually_needs_to_enter()
+    public async Task TwoFactor_advertises_api_key_and_template_name()
     {
         var twoFactor = (await ListAsync()).Single(p => p.Name == "2Factor");
 
-        // The admin-facing names, not the wire keys: this is what the form labels.
-        twoFactor.Settings.Select(f => f.Label).Should().Contain(["API key", "Sender ID"]);
-        twoFactor.TemplateFields.Select(f => f.Label).Should().Contain("Template name");
+        twoFactor.Settings.Select(f => f.Key).Should()
+            .BeEquivalentTo(["ApiKey", "TemplateName"]);
+        twoFactor.RequiredSettings.Should().BeEquivalentTo(["ApiKey", "TemplateName"]);
 
         var apiKey = twoFactor.Settings.Single(f => f.Key == "ApiKey");
         apiKey.Required.Should().BeTrue();
         apiKey.Type.Should().Be(Contracts.Admin.SmsFieldType.Secret);
 
-        var templateName = twoFactor.TemplateFields.Single(f => f.Key == "externalTemplateId");
+        var templateName = twoFactor.Settings.Single(f => f.Key == "TemplateName");
         templateName.Required.Should().BeTrue();
-        templateName.Placeholder.Should().Be("LOGIN_OTP");
+        templateName.Type.Should().Be(Contracts.Admin.SmsFieldType.Text);
     }
 
     [Fact]
-    public async Task Free2Sms_shows_no_template_name_because_it_does_not_use_one()
+    public async Task Free2Sms_advertises_api_key_sender_id_and_message_template()
     {
         var free2Sms = (await ListAsync()).Single(p => p.Name == "Free2SMS");
 
-        // Only the API key and sender ID at the top level, which is exactly the "hide what does
-        // not apply" rule.
-        free2Sms.Settings.Where(f => !f.Advanced)
-            .Select(f => f.Key).Should().BeEquivalentTo(["ApiKey", "SenderId"]);
-        free2Sms.TemplateFields.Select(f => f.Label).Should().Contain("DLT template ID");
-        free2Sms.TemplateFields.Should().NotContain(f => f.Label == "Template name");
-        free2Sms.SupportsNativeOtp.Should().BeFalse();
+        free2Sms.Settings.Select(f => f.Key).Should()
+            .BeEquivalentTo(["ApiKey", "SenderId", "MessageTemplate"]);
+
+        var template = free2Sms.Settings.Single(f => f.Key == "MessageTemplate");
+        template.Type.Should().Be(Contracts.Admin.SmsFieldType.Textarea);
     }
 
     [Fact]
-    public async Task Twilio_shows_a_template_sid_rather_than_a_template_name()
+    public async Task Twilio_advertises_account_sid_auth_token_and_from_number()
     {
         var twilio = (await ListAsync()).Single(p => p.Name == "Twilio");
 
-        twilio.TemplateFields.Select(f => f.Label).Should().Contain("Verify Template SID");
+        twilio.Settings.Select(f => f.Key).Should()
+            .BeEquivalentTo(["AccountSid", "AuthToken", "FromNumber"]);
         twilio.RequiredSettings.Should()
-            .BeEquivalentTo(["AccountSid", "AuthToken", "ServiceSid"]);
+            .BeEquivalentTo(["AccountSid", "AuthToken", "FromNumber"]);
+
+        var authToken = twilio.Settings.Single(f => f.Key == "AuthToken");
+        authToken.Type.Should().Be(Contracts.Admin.SmsFieldType.Secret);
     }
 
     [Fact]
@@ -84,12 +83,22 @@ public sealed class GetSmsProvidersHandlerTests
             provider.Settings.Should().NotBeEmpty();
         }
     }
+
+    [Fact]
+    public async Task No_provider_advertises_delivery_mode_or_template_fields()
+    {
+        var providers = await ListAsync();
+
+        foreach (var provider in providers)
+        {
+            provider.Settings.Should().NotContain(f => f.Key == "DeliveryMode");
+            provider.Settings.Should().OnlyContain(f => f.Type != Contracts.Admin.SmsFieldType.Select);
+        }
+    }
 }
 
 /// <summary>
-/// Switching provider must not leave the previous gateway's values behind. A stored 2Factor
-/// OtpPath is meaningless to Free2Sms and would otherwise be resurrected if the admin switched
-/// back.
+/// Switching provider must not leave the previous gateway's values behind.
 /// </summary>
 public sealed class SmsProviderSwitchClearsInapplicableSettingsTests
 {
@@ -99,44 +108,40 @@ public sealed class SmsProviderSwitchClearsInapplicableSettingsTests
         var twoFactorSettings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["ApiKey"] = "2fa-secret",
-            ["OtpPath"] = "/API/V1/OTP/SEND",
-            ["TemplateNameField"] = "template_name"
+            ["TemplateName"] = "LOGIN_OTP"
         };
 
         var config = SmsProviderConfig.Create(true, SmsProviderKind.TwoFactor, twoFactorSettings);
-        config.EncryptedSettings.Should().Contain("OtpPath");
+        config.EncryptedSettings.Should().Contain("TemplateName");
 
-        // Free2Sms accepts none of the 2Factor route knobs, so its validator rejects them and the
-        // admin form only ever submits its own keys.
         var free2SmsSettings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["ApiKey"] = "f2sms-key",
-            ["SenderId"] = "F2SMS"
+            ["SenderId"] = "F2SMS",
+            ["MessageTemplate"] = "Your code is {{OTP}}"
         };
 
         config.Configure(true, SmsProviderKind.Free2Sms, free2SmsSettings);
 
         config.Kind.Should().Be(SmsProviderKind.Free2Sms);
-        config.EncryptedSettings.Should().NotContain("OtpPath");
-        config.EncryptedSettings.Should().NotContain("TemplateNameField");
+        config.EncryptedSettings.Should().NotContain("TemplateName");
         config.EncryptedSettings.Should().Contain("SenderId");
     }
 
     [Fact]
     public void Removing_a_key_from_the_form_removes_the_stored_value()
     {
-        // Configure replaces rather than merges, so an admin clearing a field genuinely clears it.
         var config = SmsProviderConfig.Create(
             true, SmsProviderKind.TwoFactor,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 ["ApiKey"] = "2fa-secret",
-                ["SenderId"] = "STORE"
+                ["TemplateName"] = "LOGIN_OTP"
             });
 
         config.Configure(true, SmsProviderKind.TwoFactor,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["ApiKey"] = "2fa-secret" });
 
-        config.EncryptedSettings.Should().NotContain("SenderId");
+        config.EncryptedSettings.Should().NotContain("TemplateName");
     }
 }

@@ -39,7 +39,6 @@ public interface IApplicationDbContext
     // -----------------------------------------------------------------------
     // SMS
     // -----------------------------------------------------------------------
-    DbSet<SmsTemplate> SmsTemplates { get; }
     DbSet<SmsProviderConfig> SmsProviderConfigs { get; }
     DbSet<OtpSendClaim> OtpSendClaims { get; }
 

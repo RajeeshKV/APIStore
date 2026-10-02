@@ -40,7 +40,6 @@ public sealed class AppDbContext(
     // -----------------------------------------------------------------------
     // SMS
     // -----------------------------------------------------------------------
-    public DbSet<SmsTemplate> SmsTemplates => Set<SmsTemplate>();
     public DbSet<SmsProviderConfig> SmsProviderConfigs => Set<SmsProviderConfig>();
     public DbSet<OtpSendClaim> OtpSendClaims => Set<OtpSendClaim>();
 

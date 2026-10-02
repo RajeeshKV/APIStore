@@ -22,7 +22,7 @@ public enum SmsProviderKind
     /// <summary>Free2SMS — bearer-token JSON REST API with DLT template matching.</summary>
     Free2Sms = 2,
 
-    /// <summary>Twilio Verify — hosted OTP service over the Verify v2 REST API.</summary>
+    /// <summary>Twilio — SMS delivery through Programmable Messaging.</summary>
     Twilio = 3
 }
 
@@ -56,7 +56,7 @@ public static class SmsProviderKinds
             "none" or "disabled" => SmsProviderKind.None,
             "2factor" or "2factorsms" => SmsProviderKind.TwoFactor,
             "free2sms" or "free2smsms" => SmsProviderKind.Free2Sms,
-            "twilio" or "twilioverify" => SmsProviderKind.Twilio,
+            "twilio" => SmsProviderKind.Twilio,
             _ => null
         };
     }

@@ -51,7 +51,7 @@ public interface ISmsProviderFactory
 /// <param name="Provider">The single active provider, or <c>None</c>.</param>
 /// <param name="IsConfigured">True when SMS is enabled and every required setting is present.</param>
 /// <param name="MissingSettings">
-/// Configuration paths still required before SMS can send, e.g. <c>Sms:Twilio:ServiceSid</c>.
+/// Configuration paths still required before SMS can send, e.g. <c>Sms:Twilio:FromNumber</c>.
 /// Names only — never values.
 /// </param>
 public sealed record SmsProviderStatus(

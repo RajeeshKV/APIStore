@@ -4,25 +4,22 @@ using System.Text;
 namespace KromicCommerce.UnitTests.Infrastructure.Sms;
 
 /// <summary>
-/// Records <b>every</b> request an adapter makes, in order, and returns a canned response.
+/// Records every request an adapter makes, in order, and returns a canned response.
 /// </summary>
-/// <remarks>
-/// The existing <see cref="StubHttpMessageHandler"/> keeps only the last request, which is enough
-/// for a single-route provider but cannot express the behaviour these adapters now have: attempting
-/// a native OTP route and then deciding whether to fall back to the transactional one. Assertions
-/// like "exactly one request was made" and "the fallback went to this URL" need the whole sequence.
-/// </remarks>
 internal sealed class RecordingHttpMessageHandler(
     HttpStatusCode status,
     string body,
     string contentType = "application/json") : HttpMessageHandler
 {
+    public RecordingHttpMessageHandler(Exception exception) : this(
+        HttpStatusCode.InternalServerError, string.Empty) => _throws = exception;
+
+    private readonly Exception? _throws;
     private readonly Queue<(HttpStatusCode Status, string Body)> _sequence = new();
 
     /// <summary>
-    /// Queues the response for the <b>second and subsequent</b> requests. The first request always
-    /// gets the canned status/body passed to the constructor, so a "native attempt fails, fallback
-    /// succeeds" scenario reads as <c>new Handler(NotFound, errorBody).Then(OK, okBody)</c>.
+    /// Queues the response for the second and subsequent requests. The first request always
+    /// gets the canned status/body passed to the constructor.
     /// </summary>
     public RecordingHttpMessageHandler Then(
         HttpStatusCode nextStatus, string nextBody)
@@ -43,8 +40,6 @@ internal sealed class RecordingHttpMessageHandler(
         Requests.Add(new RecordedRequest(
             request.Method,
             request.RequestUri!.ToString(),
-            // The escaped path, which is what actually goes on the wire. Uri.ToString() unescapes,
-            // so it cannot show whether a path segment was correctly percent-encoded.
             request.RequestUri.PathAndQuery,
             content,
             request.Headers.ToDictionary(
@@ -52,8 +47,9 @@ internal sealed class RecordingHttpMessageHandler(
                 h => string.Join(",", h.Value),
                 StringComparer.OrdinalIgnoreCase)));
 
-        // Named on both arms, otherwise the ternary yields an unnamed tuple and the element names
-        // are lost.
+        if (_throws is not null)
+            throw _throws;
+
         var response = Requests.Count == 1
             ? (Status: status, Body: body)
             : _sequence.Count > 0

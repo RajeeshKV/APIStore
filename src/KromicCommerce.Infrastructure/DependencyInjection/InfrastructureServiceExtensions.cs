@@ -171,7 +171,11 @@ public static class InfrastructureServiceExtensions
             ?? throw new InvalidOperationException(
                 $"Configuration section '{DatabaseOptions.SectionName}' is missing.");
 
-        services.AddDbContext<AppDbContext>(options =>
+// Resolved per scope, because the interceptor needs the same scoped ICacheInvalidator as
+        // the context it is attached to. The (serviceProvider, options) overload is what makes
+        // that possible — a plain options lambda is configured once and could not resolve
+        // scoped services safely.
+        services.AddDbContext<AppDbContext>((sp, options) =>
         {
             options.UseNpgsql(dbOptions.ConnectionString, npgsql =>
             {
@@ -180,6 +184,11 @@ public static class InfrastructureServiceExtensions
             });
             if (dbOptions.EnableDetailedErrors) options.EnableDetailedErrors();
             if (dbOptions.EnableSensitiveDataLogging) options.EnableSensitiveDataLogging();
+
+            // Global cache-coherence safety net. Every save that touches an entity feeding a
+            // cached projection evicts that projection, whether or not the calling handler
+            // remembered to.
+            options.AddInterceptors(sp.GetRequiredService<CacheInvalidationInterceptor>());
         });
 
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<AppDbContext>());
@@ -285,13 +294,6 @@ public static class InfrastructureServiceExtensions
         // ValidateOnStart — an incomplete configuration is reported through
         // ISmsProviderFactory.Status instead of crashing the host.
         services.AddOptions<SmsOptions>().Bind(configuration.GetSection(SmsOptions.SectionName));
-        services.AddOptions<SmsOtpPolicyOptions>()
-            .Bind(configuration.GetSection($"{SmsOptions.SectionName}:{nameof(SmsOptions.Otp)}"));
-
-        var section = configuration.GetSection(SmsOptions.SectionName);
-        services.AddOptions<TwoFactorOptions>().Bind(section.GetSection(nameof(SmsOptions.TwoFactor)));
-        services.AddOptions<Free2SmsOptions>().Bind(section.GetSection(nameof(SmsOptions.Free2Sms)));
-        services.AddOptions<TwilioOptions>().Bind(section.GetSection(nameof(SmsOptions.Twilio)));
 
         // Per-provider timeouts. An OTP is useless if it arrives minutes late, so the
         // gateway budget is deliberately short.
@@ -299,23 +301,17 @@ public static class InfrastructureServiceExtensions
         AddSmsHttpClient(services, Free2SmsProvider.HttpClientName);
         AddSmsHttpClient(services, TwilioProvider.HttpClientName);
 
-        // Scoped, not singleton: the adapters look up their message template and the
-        // administrator's saved credentials per send.
-        services.AddScoped<ISmsTemplateStore, EfSmsTemplateStore>();
+        // Scoped: the adapters look up the administrator's saved credentials per send.
         services.AddScoped<ISmsProviderSettings, DbSmsProviderSettings>();
-        // Registered so any adapter can resolve it independently of the factory; it is stateless
-        // and thread-safe, so a singleton avoids a per-send allocation and cannot leak per-request
-        // state between sends.
-        services.AddSingleton<ISmsOtpAuditSink, LoggingSmsOtpAuditSink>();
         services.AddScoped<ISmsProviderFactory, SmsProviderFactory>();
 
         // Bridge SMS policy → Application SmsPolicyOptions (policy values only, no credentials)
         services.AddOptions<SmsPolicyOptions>().Configure<IOptions<SmsOptions>>((s, o) =>
         {
-            s.ExpiryMinutes = o.Value.Otp.ClampedExpiryMinutes;
-            s.ResendCooldownSeconds = o.Value.Otp.ClampedResendCooldownSeconds;
-            s.MaxAttempts = o.Value.Otp.ClampedMaxAttempts;
-            s.Length = o.Value.Otp.ClampedLength;
+            s.ExpiryMinutes = SmsOtpDefaults.ExpiryMinutes;
+            s.ResendCooldownSeconds = SmsOtpDefaults.ResendCooldownSeconds;
+            s.MaxAttempts = SmsOtpDefaults.MaxAttempts;
+            s.Length = SmsOtpDefaults.Length;
             s.RequireVerifiedPhoneAtCheckout = o.Value.RequireVerifiedPhoneAtCheckout;
         });
 
@@ -341,6 +337,10 @@ public static class InfrastructureServiceExtensions
     private static IServiceCollection AddCatalogServices(this IServiceCollection services)
     {
         services.AddScoped<ICatalogCacheService, CatalogCacheService>();
+        services.AddScoped<ICacheInvalidator, CacheInvalidator>();
+        // Registered per scope and pulled into AddDbContext below, so the interceptor shares the
+        // scoped invalidator rather than capturing a singleton.
+        services.AddScoped<CacheInvalidationInterceptor>();
         services.AddScoped<ICloudinaryService, CloudinaryService>();
         return services;
     }

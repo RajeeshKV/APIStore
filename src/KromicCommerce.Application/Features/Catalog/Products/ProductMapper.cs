@@ -26,6 +26,8 @@ internal static class ProductMapper
                 .Select(v => new VariantResponse(
                     v.Id, v.Sku, v.PriceOverride, v.SortOrder, v.IsActive, v.AttributeValueIds,
                     null)).ToList(),
+            // Denormalised on the product row, so the admin detail view needs no aggregate query.
+            p.RatingAverage, p.RatingCount,
             p.CreatedAtUtc, p.UpdatedAtUtc);
 
     internal static ProductSummaryResponse MapToSummary(Product p, int? available = null) =>

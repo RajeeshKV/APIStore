@@ -1,4 +1,7 @@
 using KromicCommerce.Application.Abstractions.Sms;
+using KromicCommerce.Application.Options;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace KromicCommerce.UnitTests.Application;
 
@@ -45,19 +48,6 @@ internal static class SmsTestDoubles
             MissingSettings: missing));
 
     /// <summary>
-    /// A template store that returns the supplied template for every provider, or none at all.
-    /// Adapters are the only callers, and each one asks for its own kind, so a single value is
-    /// enough to exercise both the "template configured" and "no template configured" paths.
-    /// </summary>
-    public static ISmsTemplateStore Templates(SmsTemplateSnapshot? template = null)
-        => new StubTemplateStore(template);
-
-    /// <summary>A template store returning a body-only template for <paramref name="provider"/>.</summary>
-    public static ISmsTemplateStore BodyTemplate(
-        SmsProviderKind provider, string body, string? externalTemplateId = null)
-        => new StubTemplateStore(new SmsTemplateSnapshot(provider, "Test template", externalTemplateId, body));
-
-    /// <summary>
     /// No saved administrator selection, so adapters fall back to their configured options. This
     /// is the state of a deployment that only ever set environment variables.
     /// </summary>
@@ -85,13 +75,6 @@ internal static class SmsTestDoubles
         public Task<SmsProviderSettingsSnapshot?> GetEffectiveAsync(
             CancellationToken cancellationToken = default)
             => Task.FromResult(snapshot);
-    }
-
-    private sealed class StubTemplateStore(SmsTemplateSnapshot? template) : ISmsTemplateStore
-    {
-        public Task<SmsTemplateSnapshot?> GetActiveAsync(
-            SmsProviderKind provider, CancellationToken cancellationToken = default)
-            => Task.FromResult(template is null || template.Provider == provider ? template : null);
     }
 
     public static IOptions<SmsPolicyOptions> Policy(

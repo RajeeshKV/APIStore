@@ -24,9 +24,9 @@ public sealed class UpdateSmsConfigValidatorTests
     {
         var settings = provider.ToLowerInvariant() switch
         {
-            "2factor" => new Dictionary<string, string> { ["ApiKey"] = "k" },
-            "free2sms" => new Dictionary<string, string> { ["ApiKey"] = "k", ["SenderId"] = "F2SMS" },
-            _ => new Dictionary<string, string> { ["AccountSid"] = "AC", ["AuthToken"] = "t", ["ServiceSid"] = "VA" }
+            "2factor" => new Dictionary<string, string> { ["ApiKey"] = "k", ["TemplateName"] = "LOGIN_OTP" },
+            "free2sms" => new Dictionary<string, string> { ["ApiKey"] = "k", ["SenderId"] = "F2SMS", ["MessageTemplate"] = "Your code is {{OTP}}" },
+            _ => new Dictionary<string, string> { ["AccountSid"] = "AC", ["AuthToken"] = "t", ["FromNumber"] = "+15550000000" }
         };
 
         IsValid(Command(provider: provider, settings: settings)).Should().BeTrue();
@@ -76,7 +76,10 @@ public sealed class UpdateSmsConfigValidatorTests
     public void Accepts_setting_names_regardless_of_case()
         => IsValid(Command(
             provider: "Free2SMS",
-            settings: new Dictionary<string, string> { ["apikey"] = "k", ["senderid"] = "F2SMS" }))
+            settings: new Dictionary<string, string>
+            {
+                ["apikey"] = "k", ["senderid"] = "F2SMS", ["messagetemplate"] = "Your code is {{OTP}}"
+            }))
             .Should().BeTrue();
 
     [Fact]
@@ -125,7 +128,6 @@ public sealed class SmsProviderKindsTests
     [InlineData("2-factor", SmsProviderKind.TwoFactor)]
     [InlineData("free_2sms", SmsProviderKind.Free2Sms)]
     [InlineData("TWILIO", SmsProviderKind.Twilio)]
-    [InlineData("TwilioVerify", SmsProviderKind.Twilio)]
     [InlineData("none", SmsProviderKind.None)]
     public void Recognises_known_spellings(string name, SmsProviderKind expected)
         => SmsProviderKinds.Parse(name).Should().Be(expected);

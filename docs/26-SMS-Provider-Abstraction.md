@@ -56,7 +56,7 @@ Verify OTP
 - Per-provider credentials in strongly-typed options
 - Sender ID / template configuration as required
 - Country
-- OTP policy: expiry, cooldown, attempts, length
+- OTP policy: fixed defaults (expiry 5 min, cooldown 60 s, attempts 5, length 4)
 
 ## Security
 

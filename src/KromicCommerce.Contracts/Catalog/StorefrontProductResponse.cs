@@ -29,6 +29,21 @@ public sealed record StorefrontProductResponse(
 
     bool IsFeatured,
 
+    /// <summary>
+    /// Mean rating across published reviews, to 2 decimal places.
+    /// </summary>
+    /// <remarks>
+    /// Denormalised onto the product row and maintained by ProductReviewRatingRecalculator, so the
+    /// product page costs no extra aggregate query. <b>Read <see cref="RatingCount"/> first</b>:
+    /// when it is zero the product has no published reviews and this value is 0, which must be
+    /// rendered as "no ratings yet" rather than as a score of zero. The same values appear on
+    /// every <c>StorefrontProductSummaryResponse</c>, so a listing card and this page never disagree.
+    /// </remarks>
+    decimal RatingAverage,
+
+    /// <summary>Number of published reviews. Zero means the product has not been rated yet.</summary>
+    int RatingCount,
+
     /// <summary>Images ordered by SortOrder. Primary image is clearly flagged.</summary>
     IReadOnlyList<StorefrontImageResponse> Images,
 
@@ -52,6 +67,12 @@ public sealed record StorefrontProductResponse(
     /// information the enum does not already have.
     /// </summary>
     public bool IsOutOfStock => StockAvailability == StockAvailability.OutOfStock;
+
+    /// <summary>
+    /// True when at least one published review exists. Prefer this over testing
+    /// <see cref="RatingCount"/> or <see cref="RatingAverage"/> for readability at call sites.
+    /// </summary>
+    public bool HasRatings => RatingCount > 0;
 }
 
 /// <summary>Public image representation — no Cloudinary internal IDs exposed.</summary>

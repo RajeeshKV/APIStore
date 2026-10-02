@@ -27,4 +27,25 @@ public sealed record StorefrontProductSummaryResponse(
     string? BrandName,
     string? BrandSlug,
 
-    bool IsFeatured);
+    bool IsFeatured,
+
+    /// <summary>
+    /// Mean rating across published reviews, to 2 decimal places.
+    /// </summary>
+    /// <remarks>
+    /// Denormalised onto the product row and maintained by ProductReviewRatingRecalculator, so this
+    /// costs no aggregate query per product. <b>Read <see cref="RatingCount"/> first</b>: when it is
+    /// zero the product has no published reviews and this value is 0, which must be rendered as
+    /// "no ratings yet" rather than as a score of zero.
+    /// </remarks>
+    decimal RatingAverage,
+
+    /// <summary>Number of published reviews. Zero means the product has not been rated yet.</summary>
+    int RatingCount)
+{
+    /// <summary>
+    /// True when at least one published review exists. Prefer this over testing
+    /// <see cref="RatingCount"/> or <see cref="RatingAverage"/> for readability at call sites.
+    /// </summary>
+    public bool HasRatings => RatingCount > 0;
+}

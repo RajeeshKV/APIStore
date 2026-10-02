@@ -188,10 +188,11 @@ All errors share one envelope (§4). Render inline, keep the customer's input, n
 | *(rate limited)* | 429 | Banner: "Too many attempts. Try again shortly." Disable both actions for the window. |
 
 > **Provider errors are deliberately collapsed.** The gateway adapters return specific codes
-> (`TEMPLATE_NOT_CONFIGURED`, `PROVIDER_NOT_SELECTED`, Free2SMS `TEMPLATE_MISMATCH`, Twilio
-> `20404`, …) and the send handler converts **every** one of them to `OTP_SEND_FAILED`. No
-> vendor-specific code reaches the client, so there is nothing gateway-shaped to branch on and
-> nothing about your infrastructure to leak.
+> (`MISSING_CREDENTIALS`, `MISSING_TEMPLATE`, Free2SMS
+> `TEMPLATE_MISMATCH`, Twilio `20404`, …) and the send handler converts **every** one of them
+> to `OTP_SEND_FAILED`. No vendor-specific code reaches the client, so there is nothing gateway-shaped
+> to branch on and nothing about your infrastructure to leak. The specific provider error codes are
+> documented in `docs/28-SMS-Providers.md`.
 
 **Expired code is not a distinct error.** An expired code returns `OTP_INVALID`, because the
 backend does not distinguish "wrong" from "expired" — deliberately, so the response cannot be used
@@ -607,4 +608,4 @@ Read these before designing the screens - each one will otherwise look like a fr
 | Whether verification is required | `verificationSatisfied` — never inferred client-side |
 | Code validity, expiry, attempts | Server only. There is no local equivalent. |
 | Gateway contracts, provider config, templates | `docs/28-SMS-Providers.md` |
-| Admin: provider selection and templates | `GET /api/v1/admin/integrations/sms`, `…/sms/templates` |
+| Admin: provider selection and credentials | `GET /api/v1/admin/integrations/sms/providers`, `PUT /api/v1/admin/integrations/sms` |

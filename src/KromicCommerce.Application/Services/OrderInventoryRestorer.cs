@@ -144,8 +144,10 @@ internal sealed class OrderInventoryRestorer(
 
         foreach (var product in slugs)
         {
+            // Stock graph rather than individual keys: it covers the storefront product page and
+            // the featured list, the only two projections that embed availability. Restoring stock
+            // changes no counts, so brand/category ProductCounts stay valid.
             cache.InvalidateStockGraph(product.Slug);
-            cache.InvalidateProduct(product.Id);
         }
     }
 }

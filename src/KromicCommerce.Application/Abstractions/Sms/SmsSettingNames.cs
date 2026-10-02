@@ -1,18 +1,18 @@
 namespace KromicCommerce.Application.Abstractions.Sms;
 
 /// <summary>
-/// The setting names each SMS provider accepts, and which of them are required.
+/// The setting names each SMS provider accepts.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Names match the corresponding <c>*Options</c> property on the Infrastructure options class
-/// for that provider.
+/// for that provider, and are used as the wire keys for <c>PUT /admin/integrations/sms</c>.
 /// </para>
 /// <para>
-/// The key list is derived from <see cref="SmsProviderFieldSchema"/> rather than maintained
-/// separately, so a field that is rendered by the admin form is by construction a field that is
-/// accepted on save. The two tables used to be independent, which is how a setting could exist in
-/// the documentation while the validator rejected it.
+/// Derived from <see cref="SmsProviderFieldSchema"/>: a field rendered by the admin form is by
+/// construction accepted on save, and a field accepted on save is rendered by the admin form.
+/// Previously these tables could drift, so a setting could exist in documentation while the
+/// validator rejected it.
 /// </para>
 /// </remarks>
 public static class SmsSettingNames
@@ -20,53 +20,31 @@ public static class SmsSettingNames
     // ---------------------------------------------------------------------
     // Key names. These match the corresponding options-class property names and
     // are used as the wire keys for PUT /admin/integrations/sms.
+    // Only the fields an administrator actually configures are listed here;
+    // provider HTTP implementation details (endpoints, variable names, headers)
+    // are hardcoded in the adapters and never stored.
     // ---------------------------------------------------------------------
 
-    /// <summary>API key / token. Present for every gateway.</summary>
+    /// <summary>API key / token. Present for every gateway that uses one.</summary>
     public const string ApiKey = "ApiKey";
 
+    /// <summary>2Factor template name registered in the 2Factor portal.</summary>
+    public const string TemplateName = "TemplateName";
+
+    /// <summary>Free2SMS DLT-approved 6-character sender header.</summary>
     public const string SenderId = "SenderId";
-    public const string BaseUrl = "BaseUrl";
-    public const string Route = "Route";
 
+    /// <summary>Free2SMS OTP message template containing {{OTP}}.</summary>
+    public const string MessageTemplate = "MessageTemplate";
+
+    /// <summary>Twilio account SID (AC…).</summary>
     public const string AccountSid = "AccountSid";
+
+    /// <summary>Twilio auth token.</summary>
     public const string AuthToken = "AuthToken";
-    public const string ServiceSid = "ServiceSid";
-    public const string MessagingServiceSid = "MessagingServiceSid";
 
-    /// <summary>
-    /// Legacy single-route name, retained because administrators may already have saved it against
-    /// 2Factor before the native/transactional split. Honoured as an alias for
-    /// <see cref="OtpPath"/> so upgrading does not silently point them at a different route.
-    /// </summary>
-    public const string SendPath = "SendPath";
-
-    public const string OtpPath = "OtpPath";
-    public const string TransactionalPath = "TransactionalPath";
-    public const string ApiKeyHeader = "ApiKeyHeader";
-    public const string TemplateNameField = "TemplateNameField";
-    public const string Channel = "Channel";
-    public const string OtpVariableName = "OtpVariableName";
-    public const string ExpiryVariableName = "ExpiryVariableName";
-
-    public const string MessagingBaseUrl = "MessagingBaseUrl";
-    public const string MessagingPath = "MessagingPath";
-
-    /// <summary>
-    /// Which route to use: <c>Auto</c> (native first, fall back to transactional),
-    /// <c>NativeOtp</c>, or <c>TransactionalTemplate</c>.
-    /// </summary>
-    public const string DeliveryMode = "DeliveryMode";
-
-    /// <summary>
-    /// Extra keys accepted for a provider but not rendered as inputs, because they are legacy
-    /// aliases rather than something an administrator should newly configure.
-    /// </summary>
-    private static readonly IReadOnlyDictionary<SmsProviderKind, string[]> Aliases =
-        new Dictionary<SmsProviderKind, string[]>
-        {
-            [SmsProviderKind.TwoFactor] = [SendPath]
-        };
+    /// <summary>Twilio sender phone number for Programmable Messaging.</summary>
+    public const string FromNumber = "FromNumber";
 
     /// <summary>Settings without which the provider cannot send. Required when SMS is enabled.</summary>
     public static IReadOnlyList<string> Required(SmsProviderKind provider)
@@ -74,16 +52,10 @@ public static class SmsSettingNames
 
     /// <summary>Every setting name accepted for <paramref name="provider"/>, required included.</summary>
     public static IReadOnlyList<string> All(SmsProviderKind provider)
-    {
-        var fields = SmsProviderFieldSchema.For(provider).Settings.Select(f => f.Key).ToList();
-
-        if (Aliases.TryGetValue(provider, out var aliases))
-            fields.AddRange(aliases);
-
-        return fields.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-    }
+        => SmsProviderFieldSchema.For(provider).Settings.Select(f => f.Key).ToList();
 
     /// <summary>True when <paramref name="name"/> is a real setting for the provider, ignoring case.</summary>
     public static bool IsKnown(SmsProviderKind provider, string? name)
-        => !string.IsNullOrWhiteSpace(name) && All(provider).Contains(name.Trim(), StringComparer.OrdinalIgnoreCase);
+        => !string.IsNullOrWhiteSpace(name) &&
+           All(provider).Any(k => string.Equals(k.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase));
 }

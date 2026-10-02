@@ -12,6 +12,11 @@ internal sealed class StubHttpMessageHandler(
     string body,
     string contentType = "application/json") : HttpMessageHandler
 {
+    public StubHttpMessageHandler(Exception exception) : this(
+        HttpStatusCode.InternalServerError, string.Empty) => _throws = exception;
+
+    private readonly Exception? _throws;
+
     public HttpRequestMessage? Request { get; private set; }
 
     public string? RequestBody { get; private set; }
@@ -24,6 +29,9 @@ internal sealed class StubHttpMessageHandler(
         RequestBody = request.Content is null
             ? null
             : await request.Content.ReadAsStringAsync(cancellationToken);
+
+        if (_throws is not null)
+            throw _throws;
 
         return new HttpResponseMessage(status)
         {

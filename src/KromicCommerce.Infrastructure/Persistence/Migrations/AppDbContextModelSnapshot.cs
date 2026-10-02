@@ -1664,57 +1664,6 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                     b.ToTable("sms_provider_configs", (string)null);
                 });
 
-            modelBuilder.Entity("KromicCommerce.Domain.Sms.SmsTemplate", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Body")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<string>("ExternalTemplateId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<bool>("IsActive")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("Provider")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("UpdatedBy")
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Provider", "IsActive")
-                        .IsUnique()
-                        .HasDatabaseName("ix_sms_templates_active_per_provider")
-                        .HasFilter("\"IsActive\" = true");
-
-                    b.ToTable("sms_templates", (string)null);
-                });
-
             modelBuilder.Entity("KromicCommerce.Domain.Store.BusinessSettings", b =>
                 {
                     b.Property<Guid>("Id")

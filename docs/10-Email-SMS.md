@@ -47,11 +47,12 @@ Provider abstraction:
 ISmsProvider  (resolved via ISmsProviderFactory — one active at a time)
   -> 2Factor
   -> Free2SMS
-  -> Twilio Verify
+  -> Twilio (Programmable Messaging)
 ```
 
-Admin can select a provider and configure credentials. Message templates are managed in the
-database per provider and are optional. See `docs/28-SMS-Providers.md`.
+Admin can select a provider and configure credentials. No template management: each adapter
+hardcodes its HTTP endpoint and variable mapping, and only `{{OTP}}` is substituted. See
+`docs/28-SMS-Providers.md`.
 
 The application always generates and verifies the OTP itself; no adapter delegates code
 generation to the gateway, so expiry, attempt limits and cooldown behave identically whichever
@@ -60,12 +61,12 @@ provider is active.
 SMS is primarily for OTP in V1.
 
 ## OTP controls
-- 4-digit default
-- Configurable expiry
-- Resend cooldown
-- Attempt limit
-- Rate limiting
-- Hashed storage
+- 4-digit default (fixed)
+- Fixed expiry: 5 minutes
+- Fixed resend cooldown: 60 seconds
+- Fixed attempt limit: 5
+- Rate limiting (5 requests / 60 seconds per IP)
+- Hashed storage (SHA-256)
 
 ## DLT
 Production India SMS must account for DLT/entity/sender/template requirements as applicable.

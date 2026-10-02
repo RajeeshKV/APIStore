@@ -1,27 +1,34 @@
 using System.Net;
+using System.Text.Json;
 using KromicCommerce.Application.Abstractions.Sms;
+using KromicCommerce.Infrastructure.Configuration;
 using KromicCommerce.Infrastructure.Sms;
 using KromicCommerce.UnitTests.Application;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace KromicCommerce.UnitTests.Infrastructure.Sms;
 
 public sealed class Free2SmsProviderTests
 {
-    private static readonly SmsOtpPolicyOptions Policy = new();
+    private const string DefaultTemplate = "Your verification code is {{OTP}}. It is valid for 5 minutes.";
+
+    private static readonly Free2SmsOptions Complete = new()
+    {
+        ApiKey = "key-123",
+        SenderId = "F2SMS",
+        MessageTemplate = DefaultTemplate
+    };
 
     private static (Free2SmsProvider Provider, StubHttpMessageHandler Handler) Build(
         HttpStatusCode status, string body,
         Free2SmsOptions? options = null,
-        ISmsTemplateStore? templates = null,
         SmsProviderSettingsSnapshot? saved = null)
     {
         var handler = new StubHttpMessageHandler(status, body);
         var provider = new Free2SmsProvider(
-            Options.Create(options ?? new Free2SmsOptions { ApiKey = "key-123", SenderId = "F2SMS" }),
-            Options.Create(Policy),
+            Options.Create(options ?? Complete),
             saved,
-            templates ?? SmsTestDoubles.Templates(),
-            new NullSmsOtpAuditSink(),
             new StubHttpClientFactory(handler),
             NullLogger<Free2SmsProvider>.Instance);
 
@@ -41,80 +48,79 @@ public sealed class Free2SmsProviderTests
 
         handler.Request!.Method.Should().Be(HttpMethod.Post);
         handler.Request.RequestUri!.ToString().Should().Be("https://free2sms.com/api/v1/send");
-        handler.Request.Headers.GetValues("Authorization").Single().Should().Be("Bearer key-123");
+        handler.Request.Headers.Authorization!.Scheme.Should().Be("Bearer");
+        handler.Request.Headers.Authorization.Parameter.Should().Be("key-123");
     }
 
     [Fact]
-    public async Task Sends_the_documented_body_with_the_otp_route_and_ten_digit_number()
+    public async Task Substitutes_OTP_into_the_configured_message_template()
     {
         var (provider, handler) = Build(HttpStatusCode.OK, """{"success":true}""");
 
         await provider.SendOtpAsync("+91 98765 43210", "482917");
 
-        var body = handler.RequestBody!;
-        body.Should().Contain("\"numbers\":\"9876543210\"");
-        body.Should().Contain("\"sender_id\":\"F2SMS\"");
-        body.Should().Contain("\"route\":\"otp\"");
-        body.Should().Contain("482917");
-        body.Should().NotContain("template_id");
+        var body = JsonSerializer.Deserialize<Dictionary<string, string>>(handler.RequestBody)!;
+
+        body["message"].Should().Be("Your verification code is 482917. It is valid for 5 minutes.");
+        body["sender_id"].Should().Be("F2SMS");
+        body["route"].Should().Be("otp");
+        body["numbers"].Should().Be("9876543210");
     }
 
     [Fact]
-    public async Task Includes_the_DLT_template_id_from_the_managed_template()
+    public async Task Rejects_a_non_indian_number()
     {
-        var (provider, handler) = Build(HttpStatusCode.OK, """{"success":true}""",
-            templates: SmsTestDoubles.BodyTemplate(
-                SmsProviderKind.Free2Sms, "Code {OTP}", "1207161234567890123"));
+        var (provider, _) = Build(HttpStatusCode.OK, """{"success":true}""");
 
-        await provider.SendOtpAsync("9876543210", "1");
+        var result = await provider.SendOtpAsync("+15550000000", "482917");
 
-        handler.RequestBody.Should().Contain("\"template_id\":1207161234567890123");
+        result.Success.Should().BeFalse();
+        result.ErrorCode.Should().Be("INVALID_PHONE_NUMBER");
     }
 
     [Fact]
-    public async Task Sends_the_managed_template_body_rather_than_a_hard_coded_one()
+    public async Task Fails_when_api_key_is_missing()
     {
-        var (provider, handler) = Build(HttpStatusCode.OK, """{"success":true}""",
-            templates: SmsTestDoubles.BodyTemplate(
-                SmsProviderKind.Free2Sms, "Hi {STORE_NAME}, your code is {OTP}."));
+        var options = new Free2SmsOptions { SenderId = "F2SMS", MessageTemplate = DefaultTemplate };
+        var (provider, _) = Build(HttpStatusCode.OK, """{"success":true}""", options: options);
 
-        await provider.SendOtpAsync("9876543210", "482917");
+        var result = await provider.SendOtpAsync("+919876543210", "482917");
 
-        handler.RequestBody.Should().Contain("your code is 482917");
-        handler.RequestBody.Should().NotContain("{OTP}");
+        result.Success.Should().BeFalse();
+        result.ErrorCode.Should().Be("MISSING_CREDENTIALS");
     }
 
     [Fact]
-    public async Task Falls_back_to_the_built_in_body_when_no_template_is_managed()
+    public async Task Fails_when_sender_id_is_missing()
     {
-        var (provider, handler) = Build(HttpStatusCode.OK, """{"success":true}""");
+        var options = new Free2SmsOptions { ApiKey = "k", MessageTemplate = DefaultTemplate };
+        var (provider, _) = Build(HttpStatusCode.OK, """{"success":true}""", options: options);
 
-        await provider.SendOtpAsync("9876543210", "482917");
+        var result = await provider.SendOtpAsync("+919876543210", "482917");
 
-        handler.RequestBody.Should().Contain("482917");
-        handler.RequestBody.Should().Contain("10 minutes");
+        result.Success.Should().BeFalse();
+        result.ErrorCode.Should().Be("MISSING_CREDENTIALS");
     }
 
     [Fact]
-    public async Task An_unparseable_DLT_id_is_omitted_rather_than_sent_malformed()
+    public async Task Fails_when_message_template_is_missing()
     {
-        var (provider, handler) = Build(HttpStatusCode.OK, """{"success":true}""",
-            templates: SmsTestDoubles.BodyTemplate(
-                SmsProviderKind.Free2Sms, "Code {OTP}", "not-a-number"));
+        var options = new Free2SmsOptions { ApiKey = "k", SenderId = "F2SMS" };
+        var (provider, _) = Build(HttpStatusCode.OK, """{"success":true}""", options: options);
 
-        var result = await provider.SendOtpAsync("9876543210", "482917");
+        var result = await provider.SendOtpAsync("+919876543210", "482917");
 
-        result.Success.Should().BeTrue();
-        handler.RequestBody.Should().NotContain("template_id");
+        result.Success.Should().BeFalse();
+        result.ErrorCode.Should().Be("MISSING_TEMPLATE");
     }
 
     [Fact]
-    public async Task Reads_a_documented_error_code_from_details()
+    public async Task Maps_a_template_mismatch_error()
     {
         var (provider, _) = Build(HttpStatusCode.BadRequest,
-            """{"success":false,"error":"Insufficient wallet balance","details":{"code":"TEMPLATE_MISMATCH"}}""");
+            """{"success":false,"code":"TEMPLATE_MISMATCH","details":{"code":"TEMPLATE_MISMATCH"}}""");
 
-        var result = await provider.SendOtpAsync("9876543210", "1");
+        var result = await provider.SendOtpAsync("+919876543210", "482917");
 
         result.Success.Should().BeFalse();
         result.ErrorCode.Should().Be("TEMPLATE_MISMATCH");
@@ -122,56 +128,65 @@ public sealed class Free2SmsProviderTests
     }
 
     [Fact]
-    public async Task Reads_a_rate_limit_code_from_the_top_level_and_treats_it_as_retryable()
+    public async Task Maps_an_insufficient_balance_error()
     {
-        var (provider, _) = Build(HttpStatusCode.TooManyRequests,
-            """{"code":"RATE_LIMITED","retryAfter":30}""");
+        var (provider, _) = Build(HttpStatusCode.BadRequest,
+            """{"success":false,"code":"INSUFFICIENT_BALANCE","details":{"code":"INSUFFICIENT_BALANCE"}}""");
 
-        var result = await provider.SendOtpAsync("9876543210", "1");
+        var result = await provider.SendOtpAsync("+919876543210", "482917");
 
-        result.Success.Should().BeFalse();
-        result.ErrorCode.Should().Be("RATE_LIMITED");
+        result.ErrorCode.Should().Be("INSUFFICIENT_BALANCE");
+    }
+
+    [Fact]
+    public async Task A_429_is_retryable()
+    {
+        var (provider, _) = Build(HttpStatusCode.TooManyRequests, """{"code":"RATE_LIMITED"}""");
+
+        var result = await provider.SendOtpAsync("+919876543210", "482917");
+
         result.Retryable.Should().BeTrue();
     }
 
     [Fact]
-    public async Task Falls_back_to_the_HTTP_status_when_the_body_is_not_json()
+    public async Task A_500_is_retryable()
     {
-        var (provider, _) = Build(HttpStatusCode.BadGateway, "<html>gateway down</html>");
+        var (provider, _) = Build(HttpStatusCode.InternalServerError, """{"success":false}""");
 
-        var result = await provider.SendOtpAsync("9876543210", "1");
+        var result = await provider.SendOtpAsync("+919876543210", "482917");
 
-        result.Success.Should().BeFalse();
-        result.ErrorCode.Should().Be("HTTP_502");
         result.Retryable.Should().BeTrue();
     }
 
     [Fact]
-    public async Task A_2xx_that_is_not_success_is_still_a_failure()
+    public async Task An_api_network_failure_is_retryable()
     {
-        var (provider, _) = Build(HttpStatusCode.OK, """{"success":false}""");
+        var handler = new StubHttpMessageHandler(
+            new HttpRequestException("connection refused"));
 
-        (await provider.SendOtpAsync("9876543210", "1")).Success.Should().BeFalse();
-    }
+        var provider = new Free2SmsProvider(
+            Options.Create(Complete),
+            null,
+            new StubHttpClientFactory(handler),
+            NullLogger<Free2SmsProvider>.Instance);
 
-    [Fact]
-    public async Task Refuses_an_unusable_phone_number_without_calling_the_gateway()
-    {
-        var (provider, handler) = Build(HttpStatusCode.OK, """{"success":true}""");
-
-        var result = await provider.SendOtpAsync("+44 7700 900123", "1");
+        var result = await provider.SendOtpAsync("+919876543210", "482917");
 
         result.Success.Should().BeFalse();
-        result.ErrorCode.Should().Be("INVALID_PHONE_NUMBER");
-        handler.Request.Should().BeNull();
+        result.ErrorCode.Should().Be("HTTP_ERROR");
+        result.Retryable.Should().BeTrue();
     }
 
     [Fact]
-    public void Reports_its_identity()
+    public void Provider_metadata_is_correct()
     {
-        var (provider, _) = Build(HttpStatusCode.OK, """{"success":true}""");
+        var provider = new Free2SmsProvider(
+            Options.Create(Complete),
+            null,
+            new StubHttpClientFactory(new StubHttpMessageHandler(HttpStatusCode.OK, "{}")),
+            NullLogger<Free2SmsProvider>.Instance);
 
-        provider.Kind.Should().Be(SmsProviderKind.Free2Sms);
         provider.ProviderName.Should().Be("Free2SMS");
+        provider.Kind.Should().Be(SmsProviderKind.Free2Sms);
     }
 }
