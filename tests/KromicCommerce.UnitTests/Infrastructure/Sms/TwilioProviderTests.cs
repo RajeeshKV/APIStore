@@ -28,6 +28,7 @@ public sealed class TwilioProviderTests
             Options.Create(Policy),
             saved,
             templates ?? SmsTestDoubles.Templates(),
+            new NullSmsOtpAuditSink(),
             new StubHttpClientFactory(handler),
             NullLogger<TwilioProvider>.Instance);
 

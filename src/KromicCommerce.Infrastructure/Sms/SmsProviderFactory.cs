@@ -32,6 +32,7 @@ internal sealed class SmsProviderFactory(
     IOptions<SmsOtpPolicyOptions> otpPolicy,
     ISmsProviderSettings savedSettings,
     ISmsTemplateStore templates,
+    ISmsOtpAuditSink audit,
     IHttpClientFactory httpClientFactory,
     ILoggerFactory loggerFactory) : ISmsProviderFactory
 {
@@ -70,15 +71,15 @@ internal sealed class SmsProviderFactory(
         return status.Provider switch
         {
             SmsProviderKind.TwoFactor => new TwoFactorProvider(
-                twoFactor, otpPolicy, saved, templates, httpClientFactory,
+                twoFactor, otpPolicy, saved, templates, audit, httpClientFactory,
                 loggerFactory.CreateLogger<TwoFactorProvider>()),
 
             SmsProviderKind.Free2Sms => new Free2SmsProvider(
-                free2Sms, otpPolicy, saved, templates, httpClientFactory,
+                free2Sms, otpPolicy, saved, templates, audit, httpClientFactory,
                 loggerFactory.CreateLogger<Free2SmsProvider>()),
 
             SmsProviderKind.Twilio => new TwilioProvider(
-                twilio, otpPolicy, saved, templates, httpClientFactory,
+                twilio, otpPolicy, saved, templates, audit, httpClientFactory,
                 loggerFactory.CreateLogger<TwilioProvider>()),
 
             _ => new NoOpSmsProvider()
@@ -113,9 +114,15 @@ internal sealed class SmsProviderFactory(
             var o when setting == SmsSettingNames.ApiKey => o.ApiKey,
             var o when setting == SmsSettingNames.SenderId => o.SenderId,
             var o when setting == SmsSettingNames.BaseUrl => o.BaseUrl,
-            var o when setting == SmsSettingNames.SendPath => o.SendPath,
-            var o when setting == SmsSettingNames.OtpVariableName => o.OtpVariableName,
+            var o when setting == SmsSettingNames.SendPath => o.OtpPath,
+            var o when setting == SmsSettingNames.OtpPath => o.OtpPath,
+            _ when setting == SmsSettingNames.TransactionalPath => twoFactor.Value.TransactionalPath,
+            _ when setting == SmsSettingNames.ApiKeyHeader => twoFactor.Value.ApiKeyHeader,
+            _ when setting == SmsSettingNames.TemplateNameField => twoFactor.Value.TemplateNameField,
+            _ when setting == SmsSettingNames.Channel => twoFactor.Value.Channel,
+            _ when setting == SmsSettingNames.OtpVariableName => twoFactor.Value.OtpVariableName,
             _ when setting == SmsSettingNames.ExpiryVariableName => twoFactor.Value.ExpiryVariableName,
+            _ when setting == SmsSettingNames.DeliveryMode => twoFactor.Value.DeliveryMode.ToName(),
             _ => null
         },
 
@@ -125,6 +132,7 @@ internal sealed class SmsProviderFactory(
             var o when setting == SmsSettingNames.SenderId => o.SenderId,
             var o when setting == SmsSettingNames.BaseUrl => o.BaseUrl,
             _ when setting == SmsSettingNames.Route => free2Sms.Value.Route,
+            _ when setting == SmsSettingNames.DeliveryMode => free2Sms.Value.DeliveryMode.ToName(),
             _ => null
         },
 
@@ -134,7 +142,11 @@ internal sealed class SmsProviderFactory(
             var o when setting == SmsSettingNames.AuthToken => o.AuthToken,
             var o when setting == SmsSettingNames.ServiceSid => o.ServiceSid,
             var o when setting == SmsSettingNames.MessagingServiceSid => o.MessagingServiceSid,
+            var o when setting == SmsSettingNames.SenderId => o.SenderId,
             _ when setting == SmsSettingNames.BaseUrl => twilio.Value.BaseUrl,
+            _ when setting == SmsSettingNames.MessagingBaseUrl => twilio.Value.MessagingBaseUrl,
+            _ when setting == SmsSettingNames.MessagingPath => twilio.Value.MessagingPath,
+            _ when setting == SmsSettingNames.DeliveryMode => twilio.Value.DeliveryMode.ToName(),
             _ => null
         },
 

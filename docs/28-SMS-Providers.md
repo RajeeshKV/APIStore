@@ -87,31 +87,51 @@ so both are read. A rejected send is never billed, which makes retrying after a 
 
 > **Contract verification status — read before go-live.**
 >
-> 2Factor's published developer documentation could not be read programmatically:
-> `2factor.in/api-docs` returns a JavaScript shell, and the documentation routes return
-> 403/404. Every candidate API path probed against the live host also returned 404. The
-> implementation follows the template-driven transactional send described in 2Factor's own
-> product documentation, and **every path segment and variable name is configuration rather
-> than a constant**:
+> 2Factor publishes **more than one generation** of this API and its own pages disagree on the
+> details. Its machine-readable reference (`2fa.api-docs.io`) is a JavaScript-rendered Stoplight
+> workspace and `docs-dev.2factor.in` answers 403, so neither could be read and quoted. The shapes
+> that *were* readable on 2Factor's own product pages are:
+>
+> | Route | Shape |
+> |-------|-------|
+> | `POST /API/V1/OTP/SEND` | Header `X-API-Key`; body `{ to, channel, template_name, var1 }`; answers `{ "status": "sent", "session_id": "…" }` |
+> | `POST /sms/{apiKey}/{TEMPLATE_NAME}` | Template **name is a URL segment** |
+> | `POST /API/V1/{api_key}/SMS/{phone}/{otp}` | Legacy; sends our code, no template |
+>
+> The published field names for the template are **not** consistent — `template_name` in one
+> example, `template` in another, `templateName` in 2Factor's own JavaScript SDK. Because of that,
+> **every divergent name is configuration rather than a constant**:
 >
 > ```
 > Sms__TwoFactor__BaseUrl
-> Sms__TwoFactor__SendPath
-> Sms__TwoFactor__OtpVariableName
-> Sms__TwoFactor__ExpiryVariableName
+> Sms__TwoFactor__OtpPath             # native OTP route, default /API/V1/OTP/SEND
+> Sms__TwoFactor__TransactionalPath   # fallback, supports {apiKey} and {template}
+> Sms__TwoFactor__ApiKeyHeader        # X-API-Key; set empty to send apiKey in the body
+> Sms__TwoFactor__TemplateNameField   # template_name
+> Sms__TwoFactor__OtpVariableName     # var1
+> Sms__TwoFactor__ExpiryVariableName  # var2
+> Sms__TwoFactor__Channel             # SMS
+> Sms__TwoFactor__DeliveryMode        # Auto | NativeOtp | TransactionalTemplate
 > ```
 >
-> Confirm these against the API reference included with your 2Factor account and correct them in
-> configuration if they differ — no rebuild is required. A wrong path surfaces as a normal,
-> reported send failure; it can never take the API down or expose the API key. Treat the
-> Twilio and Free2SMS contracts as confirmed and this one as unconfirmed until a real key has
-> been used against the live account.
+> Confirm these against the API reference included with your 2Factor account and correct them
+> without a rebuild. A wrong path surfaces as a normal, reported send failure; it can never take the
+> API down or expose the API key. Treat the Twilio and Free2SMS contracts as confirmed and this one
+> as unconfirmed until a real key has been used against the live account.
 
-2Factor requires an approved message template, so it refuses to send without an active
-`SmsTemplate` that carries a template ID — a body on its own is not enough. 2Factor has
-historically reported application-level failures as HTTP 200 with a `Status` field, so an
-explicit non-`Success` status is treated as a failure even on a 2xx, while a 2xx with no
-`Status` field is accepted.
+**2Factor delivery.** The native OTP route is attempted first. The transactional fallback — where
+the template **name is part of the URL** — is used only when 2Factor reports the native route is
+unavailable (`404`/`405`/`501`). It is deliberately *not* used after a timeout or `5xx`, because
+those are ambiguous about whether the first SMS was delivered and a second send could leave the
+customer holding one of two codes.
+
+The **native route does not require a registered template**, so 2Factor works before anyone has
+completed DLT registration. The transactional route does require one and fails with
+`TEMPLATE_NOT_CONFIGURED` rather than sending an unresolved request.
+
+2Factor has historically reported application-level failures as HTTP 200 with a `Status` field, so
+an explicit non-success status is treated as a failure even on a 2xx, while a 2xx with no status
+field is accepted.
 
 ---
 
@@ -194,11 +214,15 @@ variables keeps working untouched, and a partially completed admin form remains 
 
 Accepted setting names, and which are required:
 
-| Provider  | Required                              | Optional                                                       |
-| --------- | ------------------------------------- | -------------------------------------------------------------- |
-| 2Factor   | `ApiKey`                              | `SenderId`, `BaseUrl`, `SendPath`, `OtpVariableName`, `ExpiryVariableName` |
-| Free2SMS  | `ApiKey`, `SenderId`                  | `BaseUrl`, `Route`                                              |
-| Twilio    | `AccountSid`, `AuthToken`, `ServiceSid` | `MessagingServiceSid`, `BaseUrl`                             |
+| Provider  | Required                                 | Optional |
+| --------- | ---------------------------------------- | -------- |
+| 2Factor   | `ApiKey`                                 | `DeliveryMode`, `SenderId`, `BaseUrl`, `OtpPath`, `TransactionalPath`, `ApiKeyHeader`, `TemplateNameField`, `Channel`, `OtpVariableName`, `ExpiryVariableName`, `SendPath` (legacy alias for `OtpPath`) |
+| Free2SMS  | `ApiKey`, `SenderId`                     | `BaseUrl`, `Route`, `DeliveryMode` |
+| Twilio    | `AccountSid`, `AuthToken`, `ServiceSid` | `DeliveryMode`, `MessagingServiceSid`, `SenderId`, `BaseUrl`, `MessagingBaseUrl`, `MessagingPath` |
+
+`DeliveryMode` applies to every provider and takes `Auto` (native OTP first, transactional only when
+the native route is unavailable), `NativeOtp`, or `TransactionalTemplate`. See
+`docs/API-Reference.md` → *SMS Providers & Templates* for the per-provider field reference.
 
 When `enabled` is false, only the setting *names* are checked — switching SMS off must not
 require re-supplying credentials that were never saved.

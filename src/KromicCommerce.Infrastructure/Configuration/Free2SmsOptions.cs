@@ -1,3 +1,5 @@
+using KromicCommerce.Domain.Sms;
+
 namespace KromicCommerce.Infrastructure.Configuration;
 
 /// <summary>
@@ -24,6 +26,14 @@ public sealed class Free2SmsOptions
     /// which is what an authentication code needs.
     /// </summary>
     public string Route { get; init; } = "otp";
+
+    /// <summary>
+    /// Fixed for this gateway: Free2SMS publishes no OTP-specific endpoint, so there is no
+    /// native route to attempt and the transactional DLT template is always used. The setting is
+    /// still honoured so an administrator does not have to know that, and so a future gateway
+    /// adding native OTP follows one code path.
+    /// </summary>
+    public SmsOtpDeliveryMode DeliveryMode { get; init; } = SmsOtpDeliveryMode.TransactionalTemplate;
 
     // The DLT content template ID and the OTP message body are NOT configured here. Both are
     // per-deployment values that must match a DLT registration, and Free2SMS rejects an

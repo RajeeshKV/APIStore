@@ -1,3 +1,5 @@
+using KromicCommerce.Domain.Sms;
+
 namespace KromicCommerce.Infrastructure.Configuration;
 
 /// <summary>
@@ -39,4 +41,30 @@ public sealed class TwilioOptions
 
     /// <summary>API root. Override for a proxy or a regional edge; the default is the documented host.</summary>
     public string BaseUrl { get; init; } = "https://verify.twilio.com";
+
+    /// <summary>
+    /// API root for the Programmable Messaging fallback used when the Verify route is
+    /// unavailable. Separate from <see cref="BaseUrl"/> because Verify and Messaging are
+    /// different hosts.
+    /// </summary>
+    public string MessagingBaseUrl { get; init; } = "https://api.twilio.com";
+
+    /// <summary>
+    /// Programmable Messaging send route, relative to <see cref="MessagingBaseUrl"/>. Used only
+    /// when <see cref="DeliveryMode"/> resolves to the transactional fallback.
+    /// </summary>
+    public string MessagingPath { get; init; } = "/2010-04-01/Accounts/{accountSid}/Messages.json";
+
+    /// <summary>
+    /// Sender for the Programmable Messaging fallback. A Twilio number, short code, or an
+    /// alphanumeric sender ID; defaults to <see cref="MessagingServiceSid"/> when that is set.
+    /// </summary>
+    public string? SenderId { get; init; }
+
+    /// <summary>
+    /// Which route to use. Defaults to <see cref="SmsOtpDeliveryMode.NativeOtp"/> because the
+    /// Verify API <i>is</i> Twilio's dedicated OTP endpoint, and falling back to Programmable
+    /// Messaging would silently drop back to a self-built send.
+    /// </summary>
+    public SmsOtpDeliveryMode DeliveryMode { get; init; } = SmsOtpDeliveryMode.NativeOtp;
 }

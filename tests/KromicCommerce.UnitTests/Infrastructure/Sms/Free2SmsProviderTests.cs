@@ -21,6 +21,7 @@ public sealed class Free2SmsProviderTests
             Options.Create(Policy),
             saved,
             templates ?? SmsTestDoubles.Templates(),
+            new NullSmsOtpAuditSink(),
             new StubHttpClientFactory(handler),
             NullLogger<Free2SmsProvider>.Instance);
 

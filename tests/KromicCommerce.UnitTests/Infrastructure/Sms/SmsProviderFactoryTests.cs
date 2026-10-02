@@ -27,6 +27,7 @@ public sealed class SmsProviderFactoryTests
             Options.Create(new SmsOtpPolicyOptions()),
             SmsTestDoubles.ProviderSettings(saved),
             SmsTestDoubles.Templates(),
+            new NullSmsOtpAuditSink(),
             new StubHttpClientFactory(new StubHttpMessageHandler(System.Net.HttpStatusCode.OK, "{}")),
             NullLoggerFactory.Instance);
 

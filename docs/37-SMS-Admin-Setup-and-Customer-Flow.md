@@ -111,12 +111,22 @@ as a form-level error and highlight the fields listed in `selectableProviders` t
 
 | Provider | Required | Optional |
 |----------|----------|----------|
-| `2Factor` | `apiKey` | `senderId`, `baseUrl`, `sendPath`, `otpVariableName`, `expiryVariableName` |
-| `Free2SMS` | `apiKey`, `senderId` | `baseUrl`, `route` |
-| `Twilio` | `accountSid`, `authToken`, `serviceSid` | `messagingServiceSid`, `baseUrl` |
+| `2Factor` | `apiKey` | `deliveryMode`, `senderId`, `baseUrl`, `otpPath`, `transactionalPath`, `apiKeyHeader`, `templateNameField`, `channel`, `otpVariableName`, `expiryVariableName` |
+| `Free2SMS` | `apiKey`, `senderId` | `baseUrl`, `route`, `deliveryMode` |
+| `Twilio` | `accountSid`, `authToken`, `serviceSid` | `deliveryMode`, `messagingServiceSid`, `senderId`, `baseUrl`, `messagingBaseUrl`, `messagingPath` |
 
 Setting names are matched case-insensitively, so `apikey` and `ApiKey` both work. Unknown names are
 rejected rather than silently stored.
+
+> `deliveryMode` selects `Auto` (native OTP endpoint first, falling back to the transactional
+> template only when the gateway reports the native route is unavailable), `NativeOtp`, or
+> `TransactionalTemplate`. The fallback is deliberately never attempted after a timeout or `5xx`,
+> because those are ambiguous about whether the first SMS was delivered.
+>
+> The template **name** each gateway needs is captured per provider on the template itself, not
+> here — it is the template's `externalTemplateId`: a 2Factor approved template *name*, a Twilio
+> `TemplateSid` (`HJ…`), or a Free2SMS numeric DLT id. It is read on every send, so changing it
+> takes effect immediately. See `docs/API-Reference.md` → *SMS Providers & Templates*.
 
 > Values are write-only. They are encrypted at rest and are never returned by any endpoint. To
 > change one, submit a new value; to keep the existing one, omit that key.

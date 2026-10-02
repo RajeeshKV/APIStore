@@ -303,6 +303,10 @@ public static class InfrastructureServiceExtensions
         // administrator's saved credentials per send.
         services.AddScoped<ISmsTemplateStore, EfSmsTemplateStore>();
         services.AddScoped<ISmsProviderSettings, DbSmsProviderSettings>();
+        // Registered so any adapter can resolve it independently of the factory; it is stateless
+        // and thread-safe, so a singleton avoids a per-send allocation and cannot leak per-request
+        // state between sends.
+        services.AddSingleton<ISmsOtpAuditSink, LoggingSmsOtpAuditSink>();
         services.AddScoped<ISmsProviderFactory, SmsProviderFactory>();
 
         // Bridge SMS policy → Application SmsPolicyOptions (policy values only, no credentials)

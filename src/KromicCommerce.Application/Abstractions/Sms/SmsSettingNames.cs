@@ -26,27 +26,55 @@ public static class SmsSettingNames
     public const string ServiceSid = "ServiceSid";
     public const string MessagingServiceSid = "MessagingServiceSid";
 
+    /// <summary>
+    /// Preferred OTP route, or the single transactional route for gateways with no native OTP.
+    /// Retained because administrators may already have saved it against 2Factor.
+    /// </summary>
     public const string SendPath = "SendPath";
+
+    public const string OtpPath = "OtpPath";
+    public const string TransactionalPath = "TransactionalPath";
+    public const string ApiKeyHeader = "ApiKeyHeader";
+    public const string TemplateNameField = "TemplateNameField";
+    public const string Channel = "Channel";
     public const string OtpVariableName = "OtpVariableName";
     public const string ExpiryVariableName = "ExpiryVariableName";
 
-    private static readonly IReadOnlyDictionary<SmsProviderKind, string[]> Optional = new Dictionary<SmsProviderKind, string[]>
-    {
-        [SmsProviderKind.TwoFactor] = [SenderId, BaseUrl, SendPath, OtpVariableName, ExpiryVariableName],
-        [SmsProviderKind.Free2Sms] = [SenderId, BaseUrl, Route],
-        [SmsProviderKind.Twilio] = [MessagingServiceSid, BaseUrl]
-    };
+    public const string MessagingBaseUrl = "MessagingBaseUrl";
+    public const string MessagingPath = "MessagingPath";
 
-    private static readonly IReadOnlyDictionary<SmsProviderKind, string[]> RequiredSettings = new Dictionary<SmsProviderKind, string[]>
-    {
-        [SmsProviderKind.TwoFactor] = [ApiKey],
-        [SmsProviderKind.Free2Sms] = [ApiKey, SenderId],
-        [SmsProviderKind.Twilio] = [AccountSid, AuthToken, ServiceSid]
-    };
+    /// <summary>
+    /// Which route to use: <c>Auto</c> (native first, fall back to transactional),
+    /// <c>NativeOtp</c>, or <c>TransactionalTemplate</c>.
+    /// </summary>
+    public const string DeliveryMode = "DeliveryMode";
+
+    private static readonly IReadOnlyDictionary<SmsProviderKind, string[]> Optional =
+        new Dictionary<SmsProviderKind, string[]>
+        {
+            [SmsProviderKind.TwoFactor] =
+            [
+                SenderId, BaseUrl, DeliveryMode,
+                SendPath, OtpPath, TransactionalPath,
+                ApiKeyHeader, TemplateNameField, Channel,
+                OtpVariableName, ExpiryVariableName
+            ],
+            [SmsProviderKind.Free2Sms] = [SenderId, BaseUrl, Route, DeliveryMode],
+            [SmsProviderKind.Twilio] =
+                [MessagingServiceSid, BaseUrl, SenderId, DeliveryMode, MessagingBaseUrl, MessagingPath]
+        };
+
+    private static readonly IReadOnlyDictionary<SmsProviderKind, string[]> RequiredSettings =
+        new Dictionary<SmsProviderKind, string[]>
+        {
+            [SmsProviderKind.TwoFactor] = [ApiKey],
+            [SmsProviderKind.Free2Sms] = [ApiKey, SenderId],
+            [SmsProviderKind.Twilio] = [AccountSid, AuthToken, ServiceSid]
+        };
 
     /// <summary>Every setting name accepted for <paramref name="provider"/>, required included.</summary>
     public static IReadOnlyList<string> All(SmsProviderKind provider) =>
-        Required(provider).Concat(Optional[provider]).ToList();
+        Required(provider).Concat(Optional[provider]).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
     /// <summary>Settings without which the provider cannot send. Required when SMS is enabled.</summary>
     public static IReadOnlyList<string> Required(SmsProviderKind provider)

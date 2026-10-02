@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
@@ -22,6 +23,7 @@ internal sealed class Free2SmsProvider(
     IOptions<SmsOtpPolicyOptions> otpPolicy,
     SmsProviderSettingsSnapshot? saved,
     ISmsTemplateStore templates,
+    ISmsOtpAuditSink audit,
     IHttpClientFactory httpClientFactory,
     ILogger<Free2SmsProvider> logger) : ISmsProvider
 {
@@ -63,11 +65,16 @@ internal sealed class Free2SmsProvider(
         var baseUrl = SmsSettings.Resolve(saved, "BaseUrl", configured.BaseUrl) ?? configured.BaseUrl;
         var route = SmsSettings.Resolve(saved, "Route", configured.Route) ?? "otp";
 
-        var template = await templates.GetActiveAsync(SmsProviderKind.Free2Sms, cancellationToken);
         var expiryMinutes = otpPolicy.Value.ClampedExpiryMinutes;
 
-        var message = template is { HasBody: true }
-            ? template.Render(otp, expiryMinutes)
+        // Resolved from the administrator's configuration on every request, so switching the DLT
+        // template takes effect on the next OTP without a restart.
+        var template = await SmsTemplateResolver
+            .ResolveAsync(templates, SmsProviderKind.Free2Sms, otp, expiryMinutes, cancellationToken)
+            .ConfigureAwait(false);
+
+        var message = template.HasBody
+            ? template.Render()
             : FallbackOtpBody
                 .Replace("{OTP}", otp, StringComparison.Ordinal)
                 .Replace("{EXPIRY_MINUTES}", expiryMinutes.ToString(
@@ -77,13 +84,15 @@ internal sealed class Free2SmsProvider(
         // A value we cannot fit in a long is dropped rather than sent malformed: Free2SMS then
         // falls back to matching on content, which is slower to reject but never bills a bad
         // request. Note the message text must still match the approved template exactly.
-        var templateId = ParseTemplateId(template?.ExternalTemplateId);
-        if (template is { HasExternalTemplate: true } && templateId is null)
+        var templateId = ParseTemplateId(template.Reference);
+        if (template.HasReference && templateId is null)
         {
             logger.LogWarning(
                 "Free2SMS template '{Name}' has a template ID that is not a 64-bit integer; " +
-                "sending without it and relying on content matching.", template.Name);
+                "sending without it and relying on content matching.", template.AdminName);
         }
+
+        var stopwatch = Stopwatch.StartNew();
 
         var payload = new SendRequest
         {
@@ -110,30 +119,64 @@ internal sealed class Free2SmsProvider(
             {
                 var messageId = body.Reference ?? body.SmsLogId?.ToString(CultureInfo.InvariantCulture);
                 logger.LogInformation("Free2SMS accepted OTP. Reference: {Reference}", body.Reference);
-                return new SmsSendResult(true, messageId, null, null, false);
+
+                var success = new SmsSendResult(true, messageId, null, null, false);
+                Publish(national, template, success, stopwatch);
+                return success;
             }
 
             var code = body?.Details?.Code ?? body?.Code ?? $"HTTP_{(int)response.StatusCode}";
             var retryable = IsRetryable(code, response.StatusCode);
 
             logger.LogWarning("Free2SMS rejected the OTP. Code: {Code}, HTTP {StatusCode}", code, (int)response.StatusCode);
-            return new SmsSendResult(false, null, code, DescribeError(code), retryable);
+            var failure = new SmsSendResult(false, null, code, DescribeError(code), retryable);
+            Publish(national, template, failure, stopwatch);
+            return failure;
         }
         catch (HttpRequestException ex)
         {
             logger.LogError(ex, "Free2SMS HTTP request failed");
-            return new SmsSendResult(false, null, "HTTP_ERROR", "Could not reach Free2SMS.", true);
+            var result = new SmsSendResult(false, null, "HTTP_ERROR", "Could not reach Free2SMS.", true);
+            Publish(national, template, result, stopwatch);
+            return result;
         }
         catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             logger.LogError("Free2SMS request timed out");
-            return new SmsSendResult(false, null, "TIMEOUT", "Provider request timed out.", true);
+            var result = new SmsSendResult(false, null, "TIMEOUT", "Provider request timed out.", true);
+            Publish(national, template, result, stopwatch);
+            return result;
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Unexpected Free2SMS error");
-            return new SmsSendResult(false, null, "UNEXPECTED_ERROR", "Unexpected provider error.", false);
+            var result = new SmsSendResult(false, null, "UNEXPECTED_ERROR", "Unexpected provider error.", false);
+            Publish(national, template, result, stopwatch);
+            return result;
         }
+    }
+
+    /// <summary>
+    /// Free2SMS exposes no OTP-specific endpoint, so the transactional DLT template is always the
+    /// route taken. It is recorded as such so the audit trail shows why no native attempt was made.
+    /// </summary>
+    private void Publish(
+        string national, SmsTemplateResolution template, SmsSendResult result, Stopwatch stopwatch)
+    {
+        stopwatch.Stop();
+        audit.Record(new SmsOtpAudit(
+            Provider: ProviderName,
+            Mode: SmsOtpDeliveryMode.TransactionalTemplate.ToName(),
+            AttemptedRoute: "transactional",
+            UsedFallback: false,
+            TemplateName: template.Exists ? template.AdminName : null,
+            TemplateReference: template.Reference,
+            MaskedPhone: SmsPhoneNumber.Mask(national),
+            Success: result.Success,
+            ProviderMessageId: result.ProviderMessageId,
+            ErrorCode: result.ErrorCode,
+            Retryable: result.Retryable,
+            DurationMs: stopwatch.ElapsedMilliseconds));
     }
 
     private static long? ParseTemplateId(string? value)
