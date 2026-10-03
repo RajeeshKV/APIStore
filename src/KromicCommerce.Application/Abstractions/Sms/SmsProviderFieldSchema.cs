@@ -81,8 +81,8 @@ public static class SmsProviderFieldSchema
     // ---------------------------------------------------------------------
     // 2Factor
     // ---------------------------------------------------------------------
-    // 2Factor's OTP endpoint sends the code this application generates. The template name is the
-    // 2Factor-registered template name; the OTP itself is passed as var1.
+    // 2Factor's Manual OTP route sends the code this application generates. The template name is
+    // the 2Factor-registered template name; both it and the code travel in the request path.
     // ---------------------------------------------------------------------
     private static SmsProviderSchema TwoFactor { get; } = new(
         Name: SmsProviderKind.TwoFactor.ToName(),
@@ -93,13 +93,13 @@ public static class SmsProviderFieldSchema
             SecretKey(
                 SmsSettingNames.ApiKey,
                 "API Key",
-                "The secret from your 2Factor account settings. Sent as the X-API-Key header.",
+                "The secret from your 2Factor account settings. 2Factor takes the key as part of the request URL, not as a header.",
                 "Paste the key from your 2Factor account"),
 
             TextField(
                 SmsSettingNames.TemplateName,
                 "Template Name",
-                "The exact name your OTP message template is registered under in the 2Factor portal. The code is passed as the first template variable.",
+                "The exact name your OTP message template is registered under in the 2Factor portal. The generated code is appended to the request URL alongside this name.",
                 "LOGIN_OTP")
         ],
         Notes:

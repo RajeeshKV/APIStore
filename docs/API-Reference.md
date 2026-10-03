@@ -907,15 +907,16 @@ Errors: `404 ADDRESS_NOT_FOUND`.
 **Security:** Secrets are never returned. Responses contain `isConfigured` flags and masked
 identifiers only.
 
-### SMS Providers & Templates — Admin
+### SMS Providers — Admin
 
 | Method | Route | Description |
 |--------|-------|-------------|
 | GET | `/api/v1/admin/integrations/sms/providers` | **Field schema per provider — render your form from this** |
-| GET | `/api/v1/admin/integrations/sms/templates` | All SMS templates |
-| POST | `/api/v1/admin/integrations/sms/templates` | Create a template → `201` |
-| PUT | `/api/v1/admin/integrations/sms/templates/{id}` | Update a template |
-| DELETE | `/api/v1/admin/integrations/sms/templates/{id}` | Delete a template → `204` |
+
+> The `/admin/integrations/sms/templates` CRUD endpoints have been **removed**. Each adapter now
+> hardcodes its own endpoint and message handling, so there is no admin-managed template row. The
+> per-provider inputs that replace it are the `TemplateName` (2Factor) and `MessageTemplate`
+> (Free2SMS) settings below, which live on the provider configuration itself.
 
 Supported providers are `None`, `TwoFactor`, `Free2Sms`, and `Twilio`. **Exactly one provider is
 active at a time**, selected via `PUT /api/v1/admin/integrations/sms` — that is the only place
@@ -931,167 +932,100 @@ same table validates the save, so the form and the enforced rules cannot disagre
 [{
   "name": "2Factor",
   "description": "API-key SMS gateway. Sends the verification code this application generates.",
-  "supportsNativeOtp": true,       // has a dedicated OTP endpoint → offer a delivery mode
-  "requiresTemplate": true,        // show the template section
-  "requiredSettings": ["ApiKey"],
+  "requiredSettings": ["ApiKey", "TemplateName"],
   "settings": [
     {
       "key": "ApiKey",             // the wire key for PUT .../sms
       "label": "API key",
       "type": "Secret",            // Text | Secret | Textarea | Number | Select
       "required": true,
-      "secret": true,              // write-only; never returned by any endpoint
-      "advanced": false,
-      "helpText": "2Factor 'secret' from Account settings. Sent as the X-API-Key header.",
-      "placeholder": "Paste the key from your provider account",
-      "formatHint": null,
+      "description": "The secret from your 2Factor account settings. …",
+      "placeholder": "Paste the key from your 2Factor account",
       "maxLength": 500,
-      "allowedValues": null,        // populated when type = Select
-      "requiredWhen": null,
-      "defaultValue": null
+      "allowedValues": null        // populated when type = Select
     }
   ],
-  "templateFields": [ /* same shape; key is "externalTemplateId" or "body" */ ],
-  "notes": ["The template name is sent on every request, so changing it takes effect immediately."]
+  "notes": ["Register the template in your 2Factor portal and enter its name above."]
 }]
 ```
 
 **Field keys differ by gateway for the same vendor concept.** The UI must use `label`, not a
-hard-coded string:
-
-| Wire key | 2Factor | Free2SMS | Twilio |
-|----------|---------|----------|--------|
-| `externalTemplateId` | **Template name** (e.g. `LOGIN_OTP`) — **required** | DLT template ID — optional | Verify Template SID (`HJ…`) — optional |
-| `body` | optional | optional | optional |
+hard-coded string.
 
 **Render rules:**
 
-- Show only `settings` for the selected provider. Switching provider and saving **clears** every
-  field that does not apply to the new provider — the save replaces the stored set, so a 2Factor
-  `OtpPath` is not carried into Free2SMS.
-- Collapse `advanced: true` fields behind a disclosure. They are fully configurable and validated.
+- Show only `settings` for the selected provider. Switching provider and saving **replaces** the
+  stored set, so settings that belonged to the previous provider are not carried over.
 - Render `type: "Secret"` as a password input and never pre-fill it; those values are never
-  returned by any endpoint.
+  returned by any endpoint. Secret-ness is inferred from `type`, not from a separate flag.
 - Render `type: "Select"` with `allowedValues`.
-- Mark `required: true` as mandatory. Where `requiredWhen` is set instead, the field becomes
-  mandatory under that condition — the 2Factor template name is required whenever the
-  transactional template route is used.
-- Hide the whole template section when `requiresTemplate` is false.
-- Only offer a delivery mode when `supportsNativeOtp` is true.
+- Mark `required: true` as mandatory. Every listed setting is required — there is no optional or
+  "advanced" tier.
 
 **Server-side enforcement (mirrors the schema exactly):**
 
 - Unknown setting keys → `400`, naming the accepted ones.
 - Missing `requiredSettings` while `enabled: true` → `400`.
-- Value beyond `maxLength`, outside `allowedValues`, or a path not starting with `/` → `400`.
-- A 2Factor template saved without `externalTemplateId` → `400 SMS_TEMPLATE_INVALID`. This was
-  previously accepted and failed much later at send time with `TEMPLATE_NOT_CONFIGURED`.
+- Value beyond `maxLength`, or outside `allowedValues` → `400`.
 
-
-- `SmsTemplateResponse`: `id`, `provider`, `name`, `body`, `externalTemplateId?`, `isActive`,
-  `updatedAtUtc`.
-- `CreateSmsTemplateRequest`: `provider`*, `name`*, `body?`, `externalTemplateId?`,
-  `isActive` (default `true`).
-- `UpdateSmsTemplateRequest`: `name`*, `body?`, `externalTemplateId?`, `isActive`* — no defaults,
-  send the full object.
+> **There are no advanced or optional fields.** An earlier revision exposed per-provider HTTP
+> implementation details as editable settings (`DeliveryMode`, `OtpPath`, `ApiKeyHeader`,
+> `Channel`, `BaseUrl`, `OtpVariableName`, …) plus a separate `templateFields` section and
+> `supportsNativeOtp` / `requiresTemplate` flags. Those were removed: each adapter now hardcodes
+> its own endpoint, method, request field names and variable mappings, so the form can only ever
+> ask for credentials. **The frontend must delete its advanced-collapsible and template-section
+> rendering, and read every input from `settings`.** Sending any of the removed keys now fails
+> validation with `400`.
 
 > Provider selection does **not** live on `PUT /api/v1/admin/settings/auth`; that endpoint no
 > longer accepts an `smsProvider` field. Saving OTP policy there without a provider is a `200`.
 
-> The database `SmsProviderConfig` row is authoritative. Deployment-level `SmsOptions` are only
-> read as a bootstrap when no row exists yet.
+#### Settings per provider
 
-#### OTP delivery: which route each provider uses
+`PUT /api/v1/admin/integrations/sms` takes a `providerSettings` object keyed by name. `ApiKey`
+and `AuthToken` are secrets; nothing else is.
 
-Every send attempts the provider's **native OTP endpoint** first and only falls back to the
-**transactional template** route. `deliveryMode` selects the behaviour explicitly:
+**2Factor** (`provider: "2Factor"`) — required: `ApiKey`, `TemplateName`.
 
-| Value | Behaviour |
-|-------|-----------|
-| `Auto` | Native OTP first; transactional only when the gateway reports the native route is unavailable (`404`/`405`/`501`). |
-| `NativeOtp` | Native route only. Never falls back. |
-| `TransactionalTemplate` | Always sends a code **this application generated**, through the registered template. |
+| Setting | Required | Notes |
+|---------|----------|-------|
+| `ApiKey` | yes | Secret. Part of the request URL, not a header. |
+| `TemplateName` | yes | The template name registered in your 2Factor portal (e.g. `LOGIN_OTP`). |
 
-> **Why the fallback is deliberately narrow.** Fallback happens *only* when the gateway says the
-> route does not exist. A timeout, `5xx` or rate limit is ambiguous — the first SMS may already
-> have been delivered — so a second send could cost money and leave the customer holding one of two
-> codes. Those are reported as retryable instead.
+2Factor's Manual OTP API puts everything in the path and takes no request body:
+`POST https://2factor.in/API/V1/{ApiKey}/SMS/{mobile}/{OTP}/{TemplateName}`. The response is
+`{"Status":"Success","Details":"…"}`, and an application-level rejection also arrives as **HTTP
+200** with `{"Status":"Error","Details":"…"}` — so HTTP status alone cannot decide success, and
+there is no machine-readable error code to switch on. The provider's `Details` text is surfaced
+to the operator verbatim.
 
-> **Who verifies the code.** `NativeOtp` for a hosted-OTP gateway means the **vendor** generates and
-> validates the code, so expiry, hashing, attempt limits and resend cooldown move to the vendor and
-> a customer meets different verification behaviour depending on the active gateway. Use
-> `TransactionalTemplate` to keep this application authoritative. This is the one setting where the
-> default (`Auto`) is chosen for delivery robustness, not for uniformity.
+**Twilio** (`provider: "Twilio"`) — required: `AccountSid`, `AuthToken`, `FromNumber`.
 
-#### What to capture per provider
+| Setting | Required | Notes |
+|---------|----------|-------|
+| `AccountSid` | yes | `AC…` |
+| `AuthToken` | yes | Secret. |
+| `FromNumber` | yes | E.164 sender number. |
 
-`PUT /api/v1/admin/integrations/sms` takes a `settings` object keyed by name. **Only `credentials`
-are secrets**; every route/tuning setting below is safe to store and is never returned by a GET.
+This is **Twilio Programmable Messaging** (Messages API), not Twilio Verify:
+`POST https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Messages.json` with
+`{To, From, Body}` and HTTP Basic auth. `ServiceSid` and `MessagingServiceSid` are **not**
+accepted.
 
-**2Factor** (`provider: "2Factor"`) — required: `ApiKey`.
+> **Migrating from the Verify-based configuration.** `ServiceSid` is no longer a valid setting, so
+> a previously saved Twilio configuration does not carry over — `FromNumber` must be re-entered.
 
-| Setting | Required | Default | Notes |
-|---------|----------|---------|-------|
-| `ApiKey` | yes | — | Sent as `X-API-Key`. Set `ApiKeyHeader` empty to send it as `apiKey` in the body instead. |
-| `DeliveryMode` | no | `Auto` | `Auto` / `NativeOtp` / `TransactionalTemplate`. |
-| `OtpPath` | no | `/API/V1/OTP/SEND` | Native OTP route. |
-| `TransactionalPath` | no | `/sms/{apiKey}/{template}` | Supports `{apiKey}` and `{template}` placeholders. |
-| `TemplateNameField` | no | `template_name` | Body field carrying the template name. |
-| `OtpVariableName` | no | `var1` | Template variable receiving the code. |
-| `ExpiryVariableName` | no | `var2` | Only sent when the body uses `{EXPIRY_MINUTES}`. |
-| `ApiKeyHeader` | no | `X-API-Key` | Empty ⇒ key travels in the body. |
-| `Channel` | no | `SMS` | `SMS` / `VOICE` / `auto`. |
-| `SenderId` | no | — | Approved sender id on the account. |
-| `BaseUrl` | no | `https://2factor.in` | |
-| `SendPath` | no | — | Legacy alias honoured for `OtpPath`; kept so existing rows keep working. |
+**Free2Sms** (`provider: "Free2Sms"`) — required: `ApiKey`, `SenderId`, `MessageTemplate`.
 
-**The template name is read from the template row on every request**, not from configuration. It is
-the template's `externalTemplateId` — for 2Factor that field holds the approved **template name**
-(e.g. `LOGIN_OTP`), not a numeric id. Body placeholders `{OTP}` and `{EXPIRY_MINUTES}` become
-`OtpVariableName`/`ExpiryVariableName` variables.
+| Setting | Required | Notes |
+|---------|----------|-------|
+| `ApiKey` | yes | Secret. Sent as `Authorization: Bearer`. |
+| `SenderId` | yes | DLT-approved 6-character header. |
+| `MessageTemplate` | yes | Message body; `{{OTP}}` is replaced with the generated code. |
 
-> **2Factor documentation caveat.** 2Factor publishes more than one generation of this API and its
-> own pages disagree on the template field name (`template_name`, `template`, `templateName`). Its
-> machine-readable reference is a JavaScript-rendered page that cannot be read programmatically.
-> Every divergent name is therefore a setting above, so an account can be corrected from this API
-> without a rebuild — which is what makes sandbox testing possible.
-
-**Twilio** (`provider: "Twilio"`) — required: `AccountSid`, `AuthToken`, `ServiceSid`.
-
-| Setting | Required | Default | Notes |
-|---------|----------|---------|-------|
-| `AccountSid` | yes | — | `AC…` |
-| `AuthToken` | yes | — | Secret. |
-| `ServiceSid` | yes | — | `VA…` Verify Service. |
-| `DeliveryMode` | no | `NativeOtp` | Verify *is* Twilio's native OTP endpoint. |
-| `MessagingServiceSid` | no | — | `MG…`; required by Twilio unless `SenderId` is set. |
-| `SenderId` | no | — | Used only by the Programmable Messaging fallback. |
-| `MessagingBaseUrl` | no | `https://api.twilio.com` | Fallback host. |
-| `MessagingPath` | no | `/2010-04-01/Accounts/{accountSid}/Messages.json` | Fallback route. |
-| `BaseUrl` | no | `https://verify.twilio.com` | |
-
-Template handling follows Twilio's documented precedence: request `TemplateSid` → Service
-`DefaultTemplateSid` → Verify default. The template's `externalTemplateId` holds the `TemplateSid`
-(`HJ…`). Placeholders in the body are passed as `TemplateCustomSubstitutions`; a raw message body
-is never sent (Twilio rejects it with error `60243`).
-
-> `CustomCodeEnabled` must be on the Verify Service to use a bring-your-own code.
-
-**Free2Sms** (`provider: "Free2Sms"`) — required: `ApiKey`, `SenderId`. **No native OTP endpoint
-is published**, so this gateway always uses the transactional DLT route.
-
-| Setting | Required | Default | Notes |
-|---------|----------|---------|-------|
-| `ApiKey` | yes | — | Sent as `Authorization: Bearer`. |
-| `SenderId` | yes | — | DLT-approved 6-character header. |
-| `Route` | no | `otp` | Priority queue; correct for authentication codes. |
-| `DeliveryMode` | no | `TransactionalTemplate` | Fixed for this gateway. |
-| `BaseUrl` | no | `https://free2sms.com/api/v1` | |
-
-The template's `externalTemplateId` is the **numeric DLT template id** (stored as text because a
-registration can exceed `Int64`); a non-numeric value is dropped and Free2SMS falls back to
-content matching. The body must match the approved template exactly or the send is rejected with
-`TEMPLATE_MISMATCH` before being billed.
+Free2SMS publishes no OTP-specific endpoint, so the adapter always uses the transactional SMS
+route with the route hardcoded to `otp`. The rendered message must match an approved DLT
+registration exactly or the send is rejected before being billed.
 
 > **Brevo is not an SMS provider here.** Brevo is wired for **email** only
 > (`/admin/integrations/email`). Brevo's transactional SMS accepts an integer `templateId` plus a

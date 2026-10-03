@@ -11,7 +11,7 @@ Three integrations are supported. **Exactly one may be active at a time.**
 
 | Provider   | `Sms:Provider` | Transport                                  | Auth                                    |
 | ---------- | -------------- | ------------------------------------------ | --------------------------------------- |
-| 2Factor    | `2Factor`      | HTTP `POST`, JSON                          | API key in the `X-API-Key` header       |
+| 2Factor    | `2Factor`      | HTTP `POST`, no body (Manual OTP API)      | API key as a URL path segment          |
 | Free2SMS   | `Free2SMS`     | HTTP `POST`, JSON                          | `Authorization: Bearer <key>`           |
 | Twilio     | `Twilio`       | HTTP `POST`, form-encoded (Messages API)   | HTTP Basic (`AccountSid:AuthToken`)     |
 | *(none)*   | *(unset)*     | —                                          | —                                       |
@@ -78,20 +78,29 @@ so both are read. A rejected send is never billed, which makes retrying after a 
 
 **2Factor** — <https://2factor.in>
 
-Sends the code this application generates through 2Factor's dedicated OTP endpoint:
+Sends the code this application generates through 2Factor's Manual OTP API:
 
 ```
-POST https://2factor.in/API/V1/OTP/SEND
-X-API-Key: {ApiKey}
-Content-Type: application/json
-
-  { "to": "{mobile}", "channel": "SMS", "template_name": "LOGIN_OTP", "var1": "{OTP}" }
+POST https://2factor.in/API/V1/{ApiKey}/SMS/{mobile}/{OTP}/{TemplateName}
+(no request body, no headers)
 ```
 
-The `template_name` is the name registered in your 2Factor portal (not a URL — the template is
-managed in the portal, not in the admin UI). The OTP is passed as `var1`. India numbers only.
-2Factor has historically reported application-level failures as HTTP 200 with a `Status` field, so
-an explicit non-success status is treated as a failure even on a 2xx.
+**Everything identifying is in the path.** 2Factor has no `X-API-Key` header and no JSON request
+body: the key, the destination, the code, and the registered template name are all URL segments.
+The destination keeps its `+` country-code prefix unescaped, because `%2B` would be read as a
+literal plus rather than a country-code separator.
+
+`TemplateName` is the name registered in your 2Factor portal (not a URL — the template is managed
+in the portal, not in the admin UI). India numbers only.
+
+The response is `{"Status":"Success","Details":"…"}`, and **an application-level rejection also
+arrives as HTTP 200** with `{"Status":"Error","Details":"…"}`. HTTP status alone therefore cannot
+decide success, and there is no machine-readable error code to switch on, so the provider's own
+`Details` text is surfaced to the operator verbatim.
+
+> An earlier revision of this adapter posted to `/API/V1/OTP/SEND` with an `X-API-Key` header and a
+> `{to, channel, template_name, var1}` JSON body. That endpoint does not exist, and every send
+> answered `404`. The shape above is the one 2Factor documents.
 
 **Removed integrations.** TechTo Networks and SMSLocal were removed in this pass. Fast2SMS
 had already been removed. Re-adding any of them should be done against the vendor's real

@@ -13,10 +13,22 @@ namespace KromicCommerce.Infrastructure.Sms;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Sends the OTP code that this application generates through 2Factor's dedicated OTP endpoint:
-/// <c>POST https://2factor.in/API/V1/OTP/SEND</c>, authenticated with an <c>X-API-Key</c> header
-/// and a <c>{ to, channel, template_name, var1 }</c> body. The template name and API key are
-/// resolved from the administrator's saved settings or deployment configuration.
+/// Sends the OTP code that this application generates through 2Factor's Manual OTP API:
+/// <c>POST https://2factor.in/API/V1/{api_key}/SMS/{phone_number}/{otp_code}/{template_name}</c>.
+/// </para>
+/// <para>
+/// <b>Everything identifying travels in the path, not the body.</b> 2Factor has no
+/// <c>X-API-Key</c> header and no JSON request body: the API key, the destination, the code and
+/// the registered template name are all URL path segments. An earlier revision of this adapter
+/// posted to <c>/API/V1/OTP/SEND</c> with an <c>X-API-Key</c> header and a
+/// <c>{to, channel, template_name, var1}</c> JSON body, which answered <c>404</c> for every send —
+/// that endpoint does not exist.
+/// </para>
+/// <para>
+/// The response is <c>{"Status":"Success","Details":"…"}</c>, and an application-level rejection
+/// also arrives as <c>200 OK</c> with <c>"Status":"Error"</c> plus a prose <c>Details</c>. So HTTP
+/// status alone cannot decide success, and there is no machine-readable error code to switch on —
+/// the provider's own <c>Details</c> text is surfaced verbatim.
 /// </para>
 /// <para>
 /// 2Factor does not generate, store, or verify the OTP — it only delivers the code this application
@@ -30,6 +42,8 @@ internal sealed class TwoFactorProvider(
     ILogger<TwoFactorProvider> logger) : ISmsProvider
 {
     public const string HttpClientName = "TwoFactor";
+
+    private const string BaseUrl = "https://2factor.in/API/V1";
 
     public string ProviderName => "2Factor";
 
@@ -63,51 +77,56 @@ internal sealed class TwoFactorProvider(
                 "A 2Factor template name must be configured before sending.", false);
         }
 
-        var payload = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["to"] = destination,
-            ["channel"] = "SMS",
-            ["template_name"] = templateName,
-            ["var1"] = otp
-        };
+        // The destination is inserted unescaped on purpose: E.164's leading '+' is a legal path
+        // character, and percent-encoding it (%2B) risks the provider reading it as a literal plus
+        // rather than a country-code separator. The other segments are attacker-influenced only
+        // through saved admin settings, but are escaped regardless.
+        var uri = new Uri(
+            $"{BaseUrl}/{Uri.EscapeDataString(apiKey)}/SMS/{destination}/" +
+            $"{Uri.EscapeDataString(otp)}/{Uri.EscapeDataString(templateName)}");
 
         var stopwatch = Stopwatch.StartNew();
 
         try
         {
             using var client = httpClientFactory.CreateClient(HttpClientName);
-            using var request = new HttpRequestMessage(
-                HttpMethod.Post,
-                new Uri("https://2factor.in/API/V1/OTP/SEND"))
-            {
-                Content = System.Net.Http.Json.JsonContent.Create(payload, options: SmsJson.Options)
-            };
-
-            request.Headers.TryAddWithoutValidation("X-API-Key", apiKey);
+            using var request = new HttpRequestMessage(HttpMethod.Post, uri);
 
             using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
             stopwatch.Stop();
 
+            var details = ReadString(body, "Details") ?? ReadString(body, "details");
+
+            // A rejected send is a 200 with "Status":"Error", so the body decides — but only when
+            // there is a body. A non-2xx is always a failure regardless of what it says.
             if (response.IsSuccessStatusCode && IsAccepted(body))
             {
-                var sessionId = ReadString(body, "session_id") ?? ReadString(body, "SessionId");
+                logger.LogInformation(
+                    "2Factor accepted the OTP. Details: {Details}. DurationMs: {DurationMs}",
+                    details, stopwatch.ElapsedMilliseconds);
 
-                logger.LogInformation("2Factor accepted the OTP. Session: {SessionId}. DurationMs: {DurationMs}",
-                    sessionId, stopwatch.ElapsedMilliseconds);
-
-                return new SmsSendResult(true, sessionId, null, null, false);
+                return new SmsSendResult(true, details, null, null, false);
             }
 
-            var code = ReadString(body, "code") ?? $"HTTP_{(int)response.StatusCode}";
-            var retryable = IsRetryable(code, response.StatusCode);
+            var code = $"HTTP_{(int)response.StatusCode}";
+            var rejected = response.IsSuccessStatusCode;
+            var retryable = !rejected && IsRetryable(response.StatusCode);
 
+            // Never log the code or the API key, only what 2Factor said about them.
             logger.LogWarning(
-                "2Factor rejected the OTP. Code: {Code}, HTTP {StatusCode}, retryable: {Retryable}. DurationMs: {DurationMs}",
+                "2Factor rejected the OTP. Code: {Code}, HTTP {StatusCode}, retryable: {Retryable}. " +
+                "DurationMs: {DurationMs}",
                 code, (int)response.StatusCode, retryable, stopwatch.ElapsedMilliseconds);
 
-            return new SmsSendResult(false, null, code, DescribeError(code), retryable);
+            var message = string.IsNullOrWhiteSpace(details)
+                ? rejected
+                    ? "2Factor rejected the message."
+                    : DescribeError(response.StatusCode)
+                : details;
+
+            return new SmsSendResult(false, null, code, message, retryable);
         }
         catch (HttpRequestException ex)
         {
@@ -127,39 +146,34 @@ internal sealed class TwoFactorProvider(
     }
 
     /// <summary>
-    /// 2Factor's published examples answer <c>{ "status": "sent" }</c>. A body with no status at
-    /// all is treated as accepted, but an explicit non-success status is not.
+    /// 2Factor answers <c>{"Status":"Success"}</c>, and reports an application-level rejection as
+    /// <c>{"Status":"Error"}</c> under a 200. A body with no recognisable status is accepted, since
+    /// that is a successful send on a shape we have not seen before.
     /// </summary>
     private static bool IsAccepted(string body)
     {
-        var status = ReadString(body, "status") ?? ReadString(body, "Status");
+        var status = ReadString(body, "Status") ?? ReadString(body, "status");
 
         if (status is null)
             return true;
 
-        return status.Equals("sent", StringComparison.OrdinalIgnoreCase)
-               || status.Equals("success", StringComparison.OrdinalIgnoreCase)
-               || status.Equals("ok", StringComparison.OrdinalIgnoreCase);
+        return status.Equals("Success", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsRetryable(string code, HttpStatusCode status) => code switch
-    {
-        "RATE_LIMITED" => true,
-        "GATEWAY_UNAVAILABLE" => true,
-        _ => (int)status >= 500 || status == HttpStatusCode.TooManyRequests
-              || status == HttpStatusCode.RequestTimeout
-    };
+    private static bool IsRetryable(HttpStatusCode status) =>
+        (int)status >= 500
+        || status == HttpStatusCode.TooManyRequests
+        || status == HttpStatusCode.RequestTimeout;
 
-    private static string DescribeError(string code) => code switch
+    private static string DescribeError(HttpStatusCode status) => status switch
     {
-        "INVALID_API_KEY" or "UNAUTHORIZED" => "The 2Factor API key is not valid.",
-        "INVALID_TEMPLATE" or "TEMPLATE_NOT_FOUND" => "The configured 2Factor template is not approved.",
-        "TEMPLATE_MISMATCH" => "The template variables do not match the approved template.",
-        "INVALID_NUMBER" or "INVALID_PHONE_NUMBER" => "The destination number is not valid.",
-        "NO_VALID_NUMBERS" => "No valid mobile number was parsed from the request.",
-        "RATE_LIMITED" => "Rate limit exceeded. Retry after the indicated delay.",
-        "GATEWAY_UNAVAILABLE" => "The 2Factor gateway is temporarily unavailable.",
-        _ => $"2Factor rejected the message ({code})."
+        HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden =>
+            "The 2Factor API key is not valid.",
+        HttpStatusCode.NotFound =>
+            "2Factor rejected the request URL. Check the API key and template name.",
+        HttpStatusCode.TooManyRequests =>
+            "Rate limit exceeded. Retry after the indicated delay.",
+        _ => $"2Factor could not be reached (HTTP {(int)status})."
     };
 
     private static string? ReadString(string json, string property)
