@@ -90,11 +90,14 @@ public sealed class DatabaseFixture : IAsyncLifetime
     /// test can assert the decision without re-implementing the eviction it triggers.
     /// </summary>
     /// <remarks>
-    /// Implements <see cref="IBusinessSettingsService"/> as well as the catalog cache, because the
-    /// settings object is evicted through a different abstraction and a test asserting on business
-    /// settings coherence needs to observe that path too.
+    /// Implements <see cref="IBusinessSettingsCacheInvalidator"/> as well as the catalog cache,
+    /// because the settings object is evicted through a different abstraction and a test asserting
+    /// on business settings coherence needs to observe that path too. The cache-only abstraction is
+    /// the right one to stand in for: <see cref="IBusinessSettingsService"/> cannot be used as the
+    /// recorder here, because the invalidation chain it belongs to is required to construct without
+    /// the database.
     /// </remarks>
-    public sealed class CacheInvalidationRecorder : ICatalogCacheService, IBusinessSettingsService
+    public sealed class CacheInvalidationRecorder : ICatalogCacheService, IBusinessSettingsCacheInvalidator
     {
         private readonly ICatalogCacheService _inner;
         private readonly List<string> _calls = [];
@@ -143,10 +146,7 @@ public sealed class DatabaseFixture : IAsyncLifetime
         public void InvalidateShippingConfiguration() { Record(nameof(InvalidateShippingConfiguration)); _inner.InvalidateShippingConfiguration(); }
         public int GetShippingEpoch() => _inner.GetShippingEpoch();
 
-        // ---- IBusinessSettingsService -------------------------------------------
-        public Task<BusinessSettings?> GetAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult<BusinessSettings?>(null);
-
+        // ---- IBusinessSettingsCacheInvalidator -----------------------------------
         public void Invalidate() => Record("BusinessSettings:Invalidate");
 
         public void InvalidateShipping() => Record("BusinessSettings:InvalidateShipping");

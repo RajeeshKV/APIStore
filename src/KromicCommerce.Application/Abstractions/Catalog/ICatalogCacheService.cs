@@ -112,7 +112,8 @@ public interface ICatalogCacheService
     /// addressed through a shipping epoch (see <c>CatalogCacheKeys.ShippingEpochKey</c>);
     /// bumping it makes every previously written delivery-scoped entry unreachable.
     /// The cached BusinessSettings object itself is evicted separately by
-    /// <c>IBusinessSettingsService.InvalidateShipping()</c>.
+    /// <c>IBusinessSettingsCacheInvalidator.InvalidateShipping()</c>, which is also the only
+    /// caller of this method.
     /// </summary>
     void InvalidateShippingConfiguration();
 

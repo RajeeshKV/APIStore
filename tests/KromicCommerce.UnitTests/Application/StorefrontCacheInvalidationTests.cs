@@ -107,7 +107,12 @@ public sealed class StorefrontCacheInvalidationTests
         new BusinessSettingsService(
                 db,
                 cache,
-                catalogCache.Object,
+                // The real cache-only invalidator, not a mock: the assertion is about the eviction
+                // itself reaching the catalog cache, and the mock is what the service delegates to.
+                new BusinessSettingsCacheInvalidator(
+                    cache,
+                    catalogCache.Object,
+                    NullLogger<BusinessSettingsCacheInvalidator>.Instance),
                 Options.Create(new CacheOptions()),
                 NullLogger<BusinessSettingsService>.Instance)
             .InvalidateShipping();

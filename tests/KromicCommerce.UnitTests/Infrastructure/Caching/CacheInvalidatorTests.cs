@@ -16,7 +16,7 @@ namespace KromicCommerce.UnitTests.Infrastructure.Caching;
 public sealed class CacheInvalidatorTests
 {
     private readonly Mock<ICatalogCacheService> _catalogCache = new();
-    private readonly Mock<IBusinessSettingsService> _settings = new();
+    private readonly Mock<IBusinessSettingsCacheInvalidator> _settings = new();
 
     private CacheInvalidator CreateInvalidator() =>
         new(_catalogCache.Object, _settings.Object, NullLogger<CacheInvalidator>.Instance);

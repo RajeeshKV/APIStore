@@ -38,10 +38,47 @@ SaveChangesAsync
 | `CacheInvalidationPlan` | `Application/Caching/CacheInvalidationPlan.cs` | One change's full invalidation footprint |
 | `ICacheInvalidator` | `Application/Abstractions/Catalog/ICacheInvalidator.cs` | The single write path for eviction |
 | `CacheInvalidator` | `Infrastructure/Caching/CacheInvalidator.cs` | Translates a plan into cache operations |
+| `IBusinessSettingsCacheInvalidator` | `Application/Abstractions/Store/IBusinessSettingsCacheInvalidator.cs` | Cache-only eviction of the settings entries |
 | `CacheInvalidationInterceptor` | `Infrastructure/Caching/CacheInvalidationInterceptor.cs` | EF `SaveChangesInterceptor`; the enforcement point |
 
 Because the interceptor is attached to `AppDbContext`, **no handler can persist a change to a cached
 entity without evicting what that change dirties** — including handlers written next year.
+
+### The dependency rule
+
+> Anything required while `AppDbContext` is being constructed must not depend on `AppDbContext`.
+
+The interceptor is resolved *inside* the context's own options configuration, so the whole graph
+below it has to terminate without the context:
+
+```
+AppDbContext
+  → CacheInvalidationInterceptor
+    → ICacheInvalidator → CacheInvalidator
+      → ICatalogCacheService         → IMemoryCache
+      → IBusinessSettingsCacheInvalidator → IMemoryCache + ICatalogCacheService
+
+BusinessSettingsService → AppDbContext          (allowed)
+IBusinessSettingsService → BusinessSettingsCacheInvalidator → IMemoryCache   (allowed)
+ICacheInvalidator → IBusinessSettingsService   (NOT allowed)
+```
+
+`CacheInvalidator` originally took `IBusinessSettingsService` in order to reach `Invalidate()`
+and `InvalidateShipping()`. Because that service reads and writes the settings row through
+`AppDbContext`, the loop closed and the container **blocked** resolving the context — it did not
+even throw. Startup therefore reached `Checking for pending EF Core migrations...` and hung, and
+the deployment died at "no open ports" without ever naming a DI problem.
+
+Splitting the eviction out into `IBusinessSettingsCacheInvalidator` fixed it. The interface is
+deliberately restricted to eviction: no read, no query, no persistence. Adding any of those would
+be the first step back towards the cycle. Handlers still call
+`IBusinessSettingsService.Invalidate()`, which now delegates to it, so there is one eviction
+implementation and one set of cache keys.
+
+`DependencyInjectionGraphTests` resolves `AppDbContext` through the real registration path and
+fails if the graph ever becomes cyclic again. Each resolution runs on a bounded wait, because a
+cycle here manifests as a block rather than an exception — a plain `GetRequiredService` would hang
+the test run instead of reporting the regression.
 
 ### Why capture happens before the save
 

@@ -125,9 +125,9 @@ public sealed class CacheInvalidationInterceptorTests(DatabaseFixture db) : Inte
         settings.SetCodEnabled(!settings.Delivery.CodEnabled);
         await ctx.SaveChangesAsync();
 
-// Storefront product pages embed a delivery estimate computed from Delivery. The shipping
-        // epoch is bumped via IBusinessSettingsService.InvalidateShipping, which owns the settings
-        // object and its delivery-scoped dependents.
+        // Storefront product pages embed a delivery estimate computed from Delivery. The shipping
+        // epoch is bumped by IBusinessSettingsCacheInvalidator.InvalidateShipping, which owns the
+        // settings entry and its delivery-scoped dependents.
         recorder.Called("BusinessSettings:InvalidateShipping")
             .Should().BeTrue();
     }
@@ -143,7 +143,7 @@ public sealed class CacheInvalidationInterceptorTests(DatabaseFixture db) : Inte
         settings.SetStoreOpen(!settings.IsStoreOpen);
         await ctx.SaveChangesAsync();
 
-recorder.Called("BusinessSettings:InvalidateShipping")
+        recorder.Called("BusinessSettings:InvalidateShipping")
             .Should().BeFalse("nothing delivery-scoped derives from the open/closed flag");
         recorder.Called(nameof(ICatalogCacheService.InvalidateCatalogStructure))
             .Should().BeFalse("no product page field changed");

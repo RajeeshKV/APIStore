@@ -188,6 +188,11 @@ public static class InfrastructureServiceExtensions
             // Global cache-coherence safety net. Every save that touches an entity feeding a
             // cached projection evicts that projection, whether or not the calling handler
             // remembered to.
+            //
+            // The interceptor's graph must terminate before it needs AppDbContext again: it is
+            // resolved here, during the context's own construction, so anything it pulled in that
+            // depended on AppDbContext would re-enter the container and deadlock startup. See
+            // IBusinessSettingsCacheInvalidator for the cycle this replaced.
             options.AddInterceptors(sp.GetRequiredService<CacheInvalidationInterceptor>());
         });
 
@@ -326,6 +331,11 @@ public static class InfrastructureServiceExtensions
     // -------------------------------------------------------------------------
     private static IServiceCollection AddStoreServices(this IServiceCollection services)
     {
+        // Registered ahead of IBusinessSettingsService and, more importantly, independently of it:
+        // this is the abstraction the EF save interceptor's chain resolves, so it must be reachable
+        // from cache infrastructure alone. Injecting IBusinessSettingsService here would recreate
+        // the AppDbContext cycle and deadlock startup.
+        services.AddScoped<IBusinessSettingsCacheInvalidator, BusinessSettingsCacheInvalidator>();
         services.AddScoped<IBusinessSettingsService, BusinessSettingsService>();
         services.AddScoped<IPromotionService, PromotionService>();
         return services;

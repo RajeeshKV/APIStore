@@ -10,13 +10,23 @@ namespace KromicCommerce.Infrastructure.Caching;
 /// <see cref="ICatalogCacheService"/> vocabulary.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The plan is the dependency knowledge; this class is the mechanism. Keeping the translation in
 /// one place means the epoch-based and key-based projections are always evicted the same way
 /// regardless of which entity triggered the change.
+/// </para>
+/// <para>
+/// The dependencies are cache abstractions and nothing else. This type is constructed while
+/// <c>AppDbContext</c> is being built (the EF save interceptor owns it), so a dependency that
+/// needed the context — <see cref="IBusinessSettingsService"/> most obviously — would make the
+/// container's construction of the context re-enter itself and deadlock. That is why the settings
+/// caches are evicted through <see cref="IBusinessSettingsCacheInvalidator"/> rather than through
+/// the settings service that reads and writes them.
+/// </para>
 /// </remarks>
 internal sealed class CacheInvalidator(
     ICatalogCacheService catalogCache,
-    IBusinessSettingsService businessSettings,
+    IBusinessSettingsCacheInvalidator businessSettingsCache,
     ILogger<CacheInvalidator> logger) : ICacheInvalidator
 {
     public ValueTask ApplyAsync(
@@ -70,9 +80,9 @@ internal sealed class CacheInvalidator(
         // Delivery estimates on every product page derive from Delivery, which is why this bumps
         // the shipping epoch instead of only dropping the settings object.
         if (p.HasFlag(CacheProjection.ShippingConfiguration))
-            businessSettings.InvalidateShipping();
+            businessSettingsCache.InvalidateShipping();
         else if (p.HasFlag(CacheProjection.BusinessSettings))
-            businessSettings.Invalidate();
+            businessSettingsCache.Invalidate();
 
         logger.LogDebug(
             "Cache invalidated {Plan}; slugs: {Slugs}, products: {Products}.",

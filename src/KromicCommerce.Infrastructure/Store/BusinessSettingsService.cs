@@ -1,4 +1,3 @@
-using KromicCommerce.Application.Abstractions.Catalog;
 using KromicCommerce.Application.Abstractions.Store;
 using KromicCommerce.Infrastructure.Caching;
 using KromicCommerce.Infrastructure.Configuration;
@@ -14,10 +13,16 @@ namespace KromicCommerce.Infrastructure.Store;
 /// Cache expiry is a safety-net fallback only.
 /// Correctness relies on explicit invalidation after every mutation.
 /// </summary>
+/// <remarks>
+/// The service depends on <see cref="IBusinessSettingsCacheInvalidator"/>, never the other way
+/// around. The EF save interceptor that also evicts the settings cache is constructed while
+/// <c>AppDbContext</c> is being built, so it cannot reach a dependency that needs the context —
+/// see <see cref="IBusinessSettingsCacheInvalidator"/> for the cycle that motivated the split.
+/// </remarks>
 internal sealed class BusinessSettingsService(
     AppDbContext db,
     IMemoryCache cache,
-    ICatalogCacheService catalogCache,
+    IBusinessSettingsCacheInvalidator settingsCache,
     IOptions<CacheOptions> cacheOptions,
     ILogger<BusinessSettingsService> logger) : IBusinessSettingsService
 {
@@ -50,20 +55,7 @@ internal sealed class BusinessSettingsService(
         return settings;
     }
 
-    public void Invalidate()
-    {
-        cache.Remove(CacheKeys.BusinessSettings);
-        logger.LogDebug("BusinessSettings cache invalidated.");
-    }
+    public void Invalidate() => settingsCache.Invalidate();
 
-    public void InvalidateShipping()
-    {
-        Invalidate();
-        // Storefront product pages embed a delivery estimate derived from DeliverySettings,
-        // so they must go stale together with the settings object itself.
-        catalogCache.InvalidateShippingConfiguration();
-        logger.LogDebug(
-            "Shipping/COD configuration caches invalidated (epoch {Epoch}).",
-            catalogCache.GetShippingEpoch());
-    }
+    public void InvalidateShipping() => settingsCache.InvalidateShipping();
 }
