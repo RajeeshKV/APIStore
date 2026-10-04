@@ -94,6 +94,9 @@ public interface IApplicationDbContext
     DbSet<InvoiceTemplate> InvoiceTemplates { get; }
     DbSet<SupportSettings> SupportSettings { get; }
 
+    /// <summary>Captured marketing leads. Written by a public endpoint, read by admin only.</summary>
+    DbSet<Lead> Leads { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 
     // -----------------------------------------------------------------------

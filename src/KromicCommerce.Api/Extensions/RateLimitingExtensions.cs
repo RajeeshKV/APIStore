@@ -11,6 +11,7 @@ internal static class RateLimitingExtensions
     internal const string OtpPolicy = "otp";
     internal const string PasswordResetPolicy = "password-reset";
     internal const string MediaUploadPolicy = "media-upload";
+    internal const string LeadPolicy = "lead";
 
     internal static IServiceCollection AddRateLimitingPolicies(
         this IServiceCollection services,
@@ -81,6 +82,22 @@ internal static class RateLimitingExtensions
                     {
                         PermitLimit = opts.MediaUploadPermitLimit,
                         Window = TimeSpan.FromSeconds(opts.MediaUploadWindowSeconds),
+                        QueueLimit = 0
+                    }));
+
+            // Public lead capture.
+            //
+            // Keyed by IP because the caller is anonymous — there is no account to key on. Tighter
+            // than the general limit: this endpoint sends a real email to a real inbox, so a bot
+            // that loops it turns the sales inbox into a spam relay. A handful per hour is far
+            // above a human filling in a form and far below anything useful to an attacker.
+            limiter.AddPolicy(LeadPolicy, ctx =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    GetClientIp(ctx),
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = opts.LeadPermitLimit,
+                        Window = TimeSpan.FromSeconds(opts.LeadWindowSeconds),
                         QueueLimit = 0
                     }));
         });

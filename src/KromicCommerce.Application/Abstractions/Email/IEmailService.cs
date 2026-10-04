@@ -66,6 +66,18 @@ public interface IEmailService
     Task SendInvoiceEmailAsync(InvoiceMailContext ctx, CancellationToken ct = default);
 
     // -----------------------------------------------------------------------
+    // Lead capture
+    //
+    // The recipient is resolved from configuration by the dispatcher, never from a request.
+    // The visitor's address is carried as Reply-To so the team can answer directly, which is
+    // the only reason it is collected — it is never a destination. Without that separation this
+    // public endpoint would be an open relay pointed wherever a caller asked.
+    // -----------------------------------------------------------------------
+
+    /// <summary>Tells the sales team a new lead was captured by the "Get Started" form.</summary>
+    Task SendLeadNotificationAsync(LeadNotificationContext ctx, CancellationToken ct = default);
+
+    // -----------------------------------------------------------------------
     // Legacy — kept for backward compatibility with existing outbox processor
     // -----------------------------------------------------------------------
 
@@ -160,6 +172,24 @@ public sealed record TicketCustomerNotificationContext(
 /// Everything needed to mail an invoice document. The subject is composed by the dispatcher
 /// rather than here so that the merchant's override and the default wording live in one place.
 /// </summary>
+/// <summary>
+/// Everything needed to notify the sales team of a captured lead.
+///
+/// <see cref="RecipientEmail"/> comes from deployment configuration. <see cref="LeadEmail"/> is the
+/// visitor's address and is applied as Reply-To so replying to the notification reaches them
+/// directly.
+/// </summary>
+public sealed record LeadNotificationContext(
+    string RecipientEmail,
+    string RecipientName,
+    string LeadName,
+    string LeadPhone,
+    string LeadPhoneRaw,
+    string LeadEmail,
+    string LeadBusiness,
+    string? LeadSource,
+    DateTime SubmittedAtUtc);
+
 public sealed record InvoiceMailContext(
     string CustomerEmail,
     string CustomerName,

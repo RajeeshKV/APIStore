@@ -95,6 +95,8 @@ public sealed class AppDbContext(
     public DbSet<InvoiceTemplate> InvoiceTemplates => Set<InvoiceTemplate>();
     public DbSet<SupportSettings> SupportSettings => Set<SupportSettings>();
 
+    public DbSet<Lead> Leads => Set<Lead>();
+
     // -----------------------------------------------------------------------
     // EF configuration
     // -----------------------------------------------------------------------

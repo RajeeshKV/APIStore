@@ -7,6 +7,7 @@ global using KromicCommerce.Domain.Catalog.Events;
 global using KromicCommerce.Domain.Cart;
 global using KromicCommerce.Domain.Orders;
 global using KromicCommerce.Domain.Orders.Events;
+global using KromicCommerce.Domain.Leads;
 global using KromicCommerce.Domain.Outbox;
 global using KromicCommerce.Domain.Support;
 global using KromicCommerce.Domain.Webhooks;

@@ -1493,11 +1493,99 @@ Errors: `ORDER_NOT_FOUND`, `ORDER_INVOICE_ALREADY_EXISTS`, `ORDER_INVOICE_NOT_IS
 
 ---
 
+## Get Started — Lead Capture
+
+Public form on the marketing site: a visitor supplies their details and the sales team is emailed.
+No authentication — this is the form a stranger fills **before** they have an account.
+
+| Method | Route | Auth | Result |
+|--------|-------|------|--------|
+| POST | `/api/v1/leads` | Public | `201` `CreateLeadResponse` |
+| GET | `/api/v1/leads` | Admin | `200` `PagedResponse<LeadResponse>` |
+
+### `POST /api/v1/leads`
+
+```jsonc
+{
+  "name": "Rahul Sharma",              // required, 2–120
+  "phone": "+91 98765 43210",          // required, 7–15 digits after formatting is stripped
+  "email": "rahul@example.com",        // required, valid address, ≤ 254
+  "business": "Kromic Retail Pvt Ltd", // required, 2–120 — business name OR category
+  "source": "hero-form",               // optional, ≤ 200 — attribution
+  "website": ""                        // honeypot — MUST be empty
+}
+```
+
+```jsonc
+// 201
+{ "success": true, "message": "Thanks — we'll be in touch shortly." }
+```
+
+`business` covers both "business name" and "category" because the form asks for either — one field,
+so a visitor who types "Retail" and one who types "Kromic Retail Pvt Ltd" both answer it.
+
+**The notification destination is server configuration, never the request.** The submitted `email`
+is applied as **Reply-To** so the team can answer by pressing reply; it is never a `To` address.
+Without that separation this public endpoint would be a mail relay pointed wherever the caller asked.
+Set the destination with `Leads__NotificationEmail` (default `hello@shopey.tech`).
+
+The lead is **stored as well as emailed**. A notification that fails — provider outage, quota, spam
+filter — must not lose the enquiry, and the admin list remains the durable record.
+
+#### Abuse protection
+
+| Defence | Behaviour |
+|---|---|
+| Rate limit | 6 requests per hour per IP. `429` when exceeded |
+| Honeypot (`website`) | A filled field returns the **same `201`** as a genuine submission, but stores nothing and queues no email. A distinguishable status would tell a bot which field gave it away, and it would simply stop filling that one |
+| Unique active phone | A second submission for a live number is `409 LEAD_ALREADY_CAPTURED`, not a `500`. The first lead is untouched |
+| Archived numbers | The unique index is partial on `IsArchived`, so someone who genuinely enquires again later is not permanently blocked |
+
+#### Field behaviour
+
+| Field | Notes |
+|---|---|
+| `phone` | Formatting is stripped for storage: `+91 98765 43210` → `+919876543210`. **No country code is guessed** — a wrong guess produces a number that dials a different person. Both forms are returned: `phone` normalised, `phoneRaw` as typed |
+| `email` | Lower-cased and trimmed |
+| `source` | Supply from a query string or UTM value to attribute leads later |
+
+#### Responses
+
+| Code | Meaning | UI action |
+|---|---|---|
+| `201` | Captured | Show the success message |
+| `400` | Validation or `LEAD_INVALID` | Show inline, do not retry |
+| `409 LEAD_ALREADY_CAPTURED` | That number is already an active lead | Show "We've already got your details" — **not** an error banner |
+| `429` | Rate limited | Show "Too many attempts, try later" |
+
+### `GET /api/v1/leads` (admin)
+
+```jsonc
+{
+  "items": [{
+    "id": "…", "name": "Rahul Sharma",
+    "phone": "+919876543210", "phoneRaw": "+91 98765 43210",
+    "email": "rahul@example.com",
+    "business": "Kromic Retail Pvt Ltd",
+    "status": "New",                  // New | Contacted | Qualified | Unqualified
+    "source": "hero-form", "isArchived": false,
+    "createdAtUtc": "2026-10-04T09:20:02Z"
+  }],
+  "page": 1, "pageSize": 20, "totalCount": 1,
+  "totalPages": 1, "hasNextPage": false, "hasPreviousPage": false
+}
+```
+
+`?status=`, `?search=` (matches name, email, phone, business — case-insensitive),
+`?includeArchived=true`, `?page=`, `?pageSize=` (max 100). Archived leads are hidden by default.
+
+---
+
 ## Authorization Summary
 
 | Level | Endpoints |
 |-------|-----------|
-| Public (no auth) | Store settings, categories, brands, products, policies, OTP, published reviews |
+| Public (no auth) | Store settings, categories, brands, products, policies, OTP, published reviews, **`POST /leads`** |
 | Customer Google auth only | `POST /auth/google` (issues application JWT) |
 | Admin password auth only | `POST /auth/login`, `POST /auth/request-password-reset`, `POST /auth/reset-password` |
 | Shared (any valid JWT) | `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all` |

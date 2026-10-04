@@ -363,6 +363,62 @@ internal sealed class BrevoEmailService(
             ct);
     }
 
+    public Task SendLeadNotificationAsync(
+        LeadNotificationContext ctx, CancellationToken ct = default)
+    {
+        // Shown as an em dash rather than an empty cell: a blank value in a notification reads
+        // as a rendering fault, whereas "we have no attribution" is the actual fact.
+        var sourceValue = string.IsNullOrWhiteSpace(ctx.LeadSource)
+            ? "<span style=\"color:#9ca3af\">— no attribution —</span>"
+            : H(ctx.LeadSource);
+
+        var sourceRow =
+            "<tr><td style=\"padding:6px 0;color:#6b7280;width:130px\">Source</td>" +
+            $"<td style=\"padding:6px 0;color:#111827\">{sourceValue}</td></tr>";
+
+        var subject = $"New Get Started enquiry — {ctx.LeadName} ({ctx.LeadBusiness})";
+
+        // Every value is HTML-encoded. This is the one email in the system whose body is fully
+        // attacker-controlled — it comes from an anonymous public form — so encoding here is not
+        // optional, and H() is applied to the subject's interpolands via the encoded body only.
+        var body = $"""
+            <h1 style="color:#1a1a1a;font-size:22px;margin:0 0 4px">New Get Started enquiry</h1>
+            <p style="color:#6b7280;font-size:13px;margin:0 0 16px">
+              {ctx.SubmittedAtUtc:yyyy-MM-dd HH:mm} UTC &nbsp;·&nbsp; reply to this email to reach {H(ctx.LeadName)} directly
+            </p>
+            <div style="background:#f8f8f8;border-radius:6px;padding:16px;margin:0 0 18px">
+              <tr><td style="padding:6px 0;color:#6b7280;width:130px">Name</td>
+                  <td style="padding:6px 0;color:#111827;font-weight:700">{H(ctx.LeadName)}</td></tr>
+              <tr><td style="padding:6px 0;color:#6b7280">Phone / WhatsApp</td>
+                  <td style="padding:6px 0;color:#111827">{H(ctx.LeadPhoneRaw)}</td></tr>
+              <tr><td style="padding:6px 0;color:#6b7280">Email</td>
+                  <td style="padding:6px 0;color:#111827">{H(ctx.LeadEmail)}</td></tr>
+              <tr><td style="padding:6px 0;color:#6b7280">Business / Category</td>
+                  <td style="padding:6px 0;color:#111827">{H(ctx.LeadBusiness)}</td></tr>
+              {sourceRow}
+            </div>
+            <p style="color:#444;margin:0;font-size:13px">
+              Captured from the public Get Started form. Normalised phone
+              <strong>{H(ctx.LeadPhone)}</strong> is stored on the lead record.
+            </p>
+            """;
+
+        // Reply-To is what makes the notification actionable: the team presses reply and the
+        // enquiry reaches the person who asked, without retyping an address off a landing page.
+        // The To address still comes from configuration, never from the request.
+        return SendAsync(
+            ctx.RecipientEmail,
+            ctx.RecipientName,
+            subject,
+            BuildEmail(
+                new OrderEmailContext(
+                    ctx.RecipientEmail, ctx.RecipientName, string.Empty, 0m, string.Empty,
+                    options.Value.SenderName, null, null, null, null),
+                body),
+            replyToEmail: ctx.LeadEmail,
+            ct);
+    }
+
     private static string OpenTicketButton(string? url, bool isReopen)
     {
         if (string.IsNullOrWhiteSpace(url)) return string.Empty;
@@ -474,13 +530,34 @@ internal sealed class BrevoEmailService(
 
     private async Task SendAsync(
         string toEmail, string toName, string subject, string html, CancellationToken ct)
+        => await SendAsync(toEmail, toName, subject, html, replyToEmail: null, ct);
+
+    /// <summary>
+    /// Sends a message, optionally setting Reply-To.
+    ///
+    /// Reply-To is what makes the lead notification actionable: the team presses reply and the
+    /// enquiry goes to the person who asked, without anyone retyping an address off a landing
+    /// page. It is applied only to the reply path — the To address still comes from configuration.
+    /// </summary>
+    private async Task SendAsync(
+        string toEmail,
+        string toName,
+        string subject,
+        string html,
+        string? replyToEmail,
+        CancellationToken ct)
     {
         var payload = new
         {
             sender = new { email = options.Value.SenderEmail, name = options.Value.SenderName },
             to = new[] { new { email = toEmail, name = toName } },
             subject,
-            htmlContent = html
+            htmlContent = html,
+            // Omitted entirely when null rather than sent as an empty object — Brevo rejects a
+            // replyTo with no address.
+            replyTo = string.IsNullOrWhiteSpace(replyToEmail)
+                ? null
+                : new { email = replyToEmail }
         };
 
         await PostAsync(payload, toEmail, subject, ct);

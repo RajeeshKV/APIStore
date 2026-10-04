@@ -79,6 +79,19 @@ public static class InfrastructureServiceExtensions
             .Bind(configuration.GetSection(SupportOptions.SectionName))
             .ValidateDataAnnotations();
 
+        // Lead capture. Same reasoning: the public form must stay up when no notification address
+        // is configured. The lead is stored either way; only the notification is lost.
+        services.AddOptions<LeadOptions>()
+            .Bind(configuration.GetSection(LeadOptions.SectionName))
+            .ValidateDataAnnotations();
+
+        // Bridge LeadOptions -> Application LeadPolicyOptions.
+        services.AddOptions<LeadPolicyOptions>().Configure<IOptions<LeadOptions>>((policy, source) =>
+        {
+            policy.NotificationEmail = source.Value.NotificationEmail;
+            policy.NotificationName = source.Value.NotificationName;
+        });
+
         // Bridge SupportOptions -> Application SupportPolicyOptions. The Application layer sees
         // only policy values, never the Infrastructure configuration type.
         services.AddOptions<SupportPolicyOptions>().Configure<IOptions<SupportOptions>>((policy, source) =>

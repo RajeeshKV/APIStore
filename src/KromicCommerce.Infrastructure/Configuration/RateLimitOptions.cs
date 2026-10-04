@@ -25,4 +25,9 @@ public sealed class RateLimitOptions
     // — see RateLimitingExtensions.MediaUploadPolicy.
     public int MediaUploadWindowSeconds { get; init; } = 3600;
     public int MediaUploadPermitLimit { get; init; } = 10;
+
+    // Public lead capture. Tight and IP-keyed because the endpoint delivers a real email to a
+    // real inbox — see RateLimitingExtensions.LeadPolicy.
+    public int LeadWindowSeconds { get; init; } = 3600;
+    public int LeadPermitLimit { get; init; } = 6;
 }

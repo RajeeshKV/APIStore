@@ -3,6 +3,7 @@ using KromicCommerce.Application.Abstractions.Email;
 using KromicCommerce.Application.Features.Support;
 using KromicCommerce.Application.Options;
 using KromicCommerce.Application.Abstractions.Store;
+using KromicCommerce.Application.Features.Leads;
 using KromicCommerce.Infrastructure.Configuration;
 using KromicCommerce.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +21,7 @@ internal sealed partial class OutboxProcessor(
     IServiceScopeFactory scopeFactory,
     IOptions<BackgroundWorkerOptions> workerOptions,
     IOptions<SupportPolicyOptions> supportOptions,
+    IOptions<LeadPolicyOptions> leadOptions,
     IOptions<AppOptions> deployOptions,
     ILogger<OutboxProcessor> logger)
     : BackgroundService
@@ -238,6 +240,19 @@ internal sealed partial class OutboxProcessor(
             case TicketOutbox.InvoiceGenerated:
             {
                 await DispatchSupportAsync(evt, db, emailSvc, settings, appOptions, ct);
+                break;
+            }
+
+            // -----------------------------------------------------------------------
+            // Lead captured by the public "Get Started" form.
+            //
+            // The recipient is read from Leads__NotificationEmail, never from the payload, so a
+            // visitor cannot redirect the notification to an address of their choosing. The
+            // visitor's own address rides along as Reply-To only.
+            // -----------------------------------------------------------------------
+            case LeadOutbox.Submitted:
+            {
+                await DispatchLeadAsync(evt, db, emailSvc, ct);
                 break;
             }
 
