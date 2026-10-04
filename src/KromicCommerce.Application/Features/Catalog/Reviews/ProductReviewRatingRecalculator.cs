@@ -1,3 +1,7 @@
+using KromicCommerce.Application.Abstractions.Data;
+using KromicCommerce.Domain.Catalog;
+using Microsoft.EntityFrameworkCore;
+
 namespace KromicCommerce.Application.Features.Catalog.Reviews;
 
 /// <summary>
@@ -25,14 +29,73 @@ internal sealed class ProductReviewRatingRecalculator(IApplicationDbContext db)
 
         if (product is null) return false;
 
-        var publishedRatings = await db.ProductReviews
+        product.SetRatingAggregate(
+            ReviewRatingAggregate.FromRatings(await PublishedRatingsAsync(productId, ct)));
+
+        return true;
+    }
+
+    /// <summary>
+    /// The ratings of every review that will be <em>published once this unit of work commits</em>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This has to be assembled from two sources, and getting it wrong is invisible. A LINQ query
+    /// goes to PostgreSQL and cannot see the change tracker, so on its own it reports the rows as
+    /// they are <em>before</em> the pending change — while the caller is about to save that same
+    /// change. Recalculating a review from the database and then saving it in one commit computes
+    /// the aggregate from the state that was just invalidated, and writes the wrong number
+    /// permanently.
+    /// </para>
+    /// <para>
+    /// The drift is different in each direction, which is why it reads as a cache bug and is not
+    /// one. Moderating Pending → Published omits the newly published review, so the count stays
+    /// too low; the reverse, and a delete, both keep a row that is about to leave the published
+    /// set, so the count stays too high.
+    /// </para>
+    /// <para>
+    /// Starting from the committed rows and folding in the tracked entries makes the read describe
+    /// the transaction's outcome rather than its starting point, and it keeps the aggregate in the
+    /// same SaveChanges as the reviews it summarises — so the two still land together.
+    /// </para>
+    /// </remarks>
+    private async Task<List<int>> PublishedRatingsAsync(Guid productId, CancellationToken ct)
+    {
+        var persisted = await db.ProductReviews
             .AsNoTracking()
-            .Where(r => r.ProductId == productId && r.Status == ReviewStatus.Published)
-            .Select(r => r.Rating)
+            .Where(r => r.ProductId == productId)
+            .Select(r => new { r.Id, r.Rating, r.Status })
             .ToListAsync(ct);
 
-        product.SetRatingAggregate(ReviewRatingAggregate.FromRatings(publishedRatings));
-        return true;
+        var effective = persisted.ToDictionary(
+            r => r.Id,
+            r => (Rating: r.Rating, r.Status));
+
+        foreach (var entry in db.ChangeTracker.Entries<ProductReview>())
+        {
+            if (entry.Entity.ProductId != productId) continue;
+
+            switch (entry.State)
+            {
+                // Added and Modified are the same case: the tracked value is the one that will be
+                // written, so it replaces whatever the database still holds.
+                case EntityState.Added:
+                case EntityState.Modified:
+                    effective[entry.Entity.Id] = (entry.Entity.Rating, entry.Entity.Status);
+                    break;
+
+                // The row is still in the database and still counted in the query above, so it has
+                // to come back out here or the count can never fall.
+                case EntityState.Deleted:
+                    effective.Remove(entry.Entity.Id);
+                    break;
+            }
+        }
+
+        return effective.Values
+            .Where(r => r.Status == ReviewStatus.Published)
+            .Select(r => r.Rating)
+            .ToList();
     }
 
     /// <summary>
