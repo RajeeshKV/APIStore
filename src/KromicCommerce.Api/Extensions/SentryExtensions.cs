@@ -45,7 +45,8 @@ internal static class SentryExtensions
                 .CreateLogger("Sentry");
             startupLogger.LogInformation(
                 "Sentry DSN not configured. Error monitoring is disabled. " +
-                "Set Sentry__Dsn to enable.");
+                "Set the Sentry__Dsn environment variable (or a \"Sentry:Dsn\" appsettings entry) to enable. " +
+                "No error events will be sent to Sentry until a DSN is configured.");
             return builder;
         }
 
@@ -59,9 +60,16 @@ internal static class SentryExtensions
             if (double.TryParse(builder.Configuration["Sentry:TracesSampleRate"], out var rate))
                 options.TracesSampleRate = Math.Clamp(rate, 0.0, 1.0);
 
-            // Only send Warning and above to Sentry via the ASP.NET Core integration
-            // (unhandled exceptions are always captured regardless of this setting)
+            // SDK diagnostic output — invaluable when diagnosing a silent integration.
+            if (bool.TryParse(builder.Configuration["Sentry:Debug"], out var debug))
+                options.Debug = debug;
+
+            // Breadcrumbs are recorded at Information and above.
             options.MinimumBreadcrumbLevel = LogLevel.Information;
+
+            // Only send Warning and above to Sentry. Unhandled exceptions captured by
+            // GlobalExceptionMiddleware are always reported regardless of this setting.
+            options.MinimumEventLevel = LogLevel.Warning;
 
             // Request body capture is OFF — bodies may contain passwords, payment data, tokens
             options.MaxRequestBodySize = Sentry.Extensibility.RequestSize.None;
@@ -73,6 +81,14 @@ internal static class SentryExtensions
                 return sentryEvent;
             });
         });
+
+        var enabledLogger = LoggerFactory
+            .Create(b => b.AddConsole())
+            .CreateLogger("Sentry");
+        enabledLogger.LogInformation(
+            "Sentry error monitoring enabled. Environment: {Environment} DsnHost: {Host}",
+            builder.Environment.EnvironmentName,
+            Uri.TryCreate(dsn, UriKind.Absolute, out var dsnUri) ? dsnUri.Host : "(unparseable DSN)");
 
         return builder;
     }
