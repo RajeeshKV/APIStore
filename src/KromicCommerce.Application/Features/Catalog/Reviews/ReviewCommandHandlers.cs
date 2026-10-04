@@ -20,7 +20,18 @@ internal sealed class SubmitReviewHandler(
         var verified = await ReviewTargetResolver.IsVerifiedPurchaseAsync(
             db, cmd.CustomerId, cmd.ProductId, ct);
 
-        var status = ReviewStatus.Pending;
+        // Submissions are published immediately.
+        //
+        // Reviews were previously held as Pending and only became visible after an admin published
+        // them, which meant a customer who had just written a review saw no trace of it, and the
+        // product page kept advertising a rating that no longer matched anything. Pre-publication
+        // screening is a policy decision, not a technical requirement, and the mechanisms for
+        // acting after the fact are stronger: IsVerifiedPurchase marks genuine buyers, and an admin
+        // can return a review to Pending, reject it with a reason, or delete it outright.
+        //
+        // PublishedAtUtc is stamped by the context method, so the review enters the public list —
+        // and the rating aggregate — in the same save as its body.
+        var status = ReviewStatus.Published;
 
         // The unique index decides the winner. The handler does not pre-check for an existing
         // review: a read-then-write here loses to a concurrent submit, and the ON CONFLICT
@@ -46,9 +57,8 @@ internal sealed class SubmitReviewHandler(
         foreach (var asset in images.Value)
             review.AddImage(asset, review.Images.Count);
 
-        // A new review is Pending by default, so the published set is unchanged and the product
-        // aggregate cannot change. Recalculated anyway so this handler has no ordering
-        // precondition to get wrong later.
+        // The review is inserted as Published, so it is already part of the published set the
+        // recalculator reads — it counts this review, and the aggregate moves in the same save.
         await ratings.RecalculateAsync(cmd.ProductId, ct);
         await db.SaveChangesAsync(ct);
 

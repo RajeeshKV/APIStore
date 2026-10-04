@@ -10,6 +10,10 @@ namespace KromicCommerce.Domain.Catalog;
 ///   - Rating is 1..5 inclusive.
 ///   - Body is required; Title is optional; both are length-capped.
 ///   - At most <see cref="MaxImages"/> images.
+///   - Submissions are created <see cref="ReviewStatus.Published"/> and are public immediately, so
+///     a customer never has to wonder where their review went. An admin can return one to
+///     <see cref="ReviewStatus.Pending"/>, reject it with a reason, or delete it; those are the
+///     levers, not a publish gate.
 ///   - Edit changes content only. It never touches Status, PublishedAtUtc, IsVerifiedPurchase,
 ///     or ownership. A published review that a customer edits stays published — resetting it to
 ///     Pending on every edit is a real product decision, and silently re-reviewing edited

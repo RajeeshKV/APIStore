@@ -1818,6 +1818,600 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                     b.ToTable("store_policies", (string)null);
                 });
 
+            modelBuilder.Entity("KromicCommerce.Domain.Support.InvoiceTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AccentColor")
+                        .IsRequired()
+                        .HasMaxLength(6)
+                        .HasColumnType("character varying(6)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("FooterNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<bool>("IsDefault")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("IssuerNameOverride")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<bool>("ShowIssuerIdentity")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("ShowLineItemTable")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("ShowNotes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("ShowTerms")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("TaxId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("Terms")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsDefault")
+                        .IsUnique()
+                        .HasDatabaseName("ix_invoice_templates_single_default")
+                        .HasFilter("\"IsDefault\" = true");
+
+                    b.HasIndex("Name")
+                        .HasDatabaseName("ix_invoice_templates_name");
+
+                    b.ToTable("invoice_templates", (string)null);
+                });
+
+            modelBuilder.Entity("KromicCommerce.Domain.Support.SupportSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AutoCloseIdleHours")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(72);
+
+                    b.Property<bool>("AutoGenerateInvoiceOnResolve")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("AutomatedInvoiceMailingEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("InvoiceMailSubjectOverride")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("MaxAttachmentsPerComment")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(6);
+
+                    b.Property<bool>("NotifyAdminOnTicketCreated")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("NotifyAdminOnTicketReopened")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("NotifyCustomerOnTicketResolved")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("support_settings", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_support_settings_singleton", "\"Id\" = '00000000-0000-0000-0000-0000000000f1'");
+                        });
+                });
+
+            modelBuilder.Entity("KromicCommerce.Domain.Support.Ticket", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AssignedAdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AutoCloseAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("AutoCloseIdleHours")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(72);
+
+                    b.Property<DateTime?>("ClosedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(8000)
+                        .HasColumnType("character varying(8000)");
+
+                    b.Property<DateTime?>("FirstResponseAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastActivityAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastReopenedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("LastUserActivityAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LatestInvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid?>("RelatedOrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ReopenCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime?>("ResolvedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("TicketNumber")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssignedAdminId");
+
+                    b.HasIndex("AutoCloseAtUtc")
+                        .HasDatabaseName("ix_tickets_autoclose_deadline")
+                        .HasFilter("\"AutoCloseAtUtc\" IS NOT NULL AND \"Status\" = 'Resolved'");
+
+                    b.HasIndex("RelatedOrderId")
+                        .HasDatabaseName("ix_tickets_related_order");
+
+                    b.HasIndex("TicketNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_tickets_ticket_number");
+
+                    b.HasIndex("CustomerId", "LastActivityAtUtc")
+                        .HasDatabaseName("ix_tickets_customer_activity");
+
+                    b.HasIndex("Status", "CreatedAtUtc")
+                        .HasDatabaseName("ix_tickets_status_created");
+
+                    b.HasIndex("Status", "LastActivityAtUtc")
+                        .HasDatabaseName("ix_tickets_status_activity");
+
+                    b.ToTable("tickets", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_tickets_idle_hours", "\"AutoCloseIdleHours\" >= 1");
+
+                            t.HasCheckConstraint("ck_tickets_reopen_count", "\"ReopenCount\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("KromicCommerce.Domain.Support.TicketAttachment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AltText")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ContentType")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("DurationSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Format")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int?>("Height")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<string>("SecureUrl")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<Guid>("TicketCommentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("Width")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TicketCommentId", "SortOrder")
+                        .HasDatabaseName("ix_ticket_attachments_comment_sort");
+
+                    b.ToTable("ticket_attachments", (string)null);
+                });
+
+            modelBuilder.Entity("KromicCommerce.Domain.Support.TicketComment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AuthorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(10000)
+                        .HasColumnType("character varying(10000)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Depth")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<bool>("InternalNote")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("IsAdminAuthor")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<Guid?>("ParentCommentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ThreadPath")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuthorId");
+
+                    b.HasIndex("ParentCommentId")
+                        .HasDatabaseName("ix_ticket_comments_parent");
+
+                    b.HasIndex("TicketId", "ThreadPath")
+                        .IsUnique()
+                        .HasDatabaseName("ix_ticket_comments_ticket_path");
+
+                    b.ToTable("ticket_comments", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_ticket_comments_depth", "\"Depth\" >= 0 AND \"Depth\" <= 6");
+
+                            t.HasCheckConstraint("ck_ticket_comments_parent_link", "\"Depth\" = 0 AND \"ParentCommentId\" IS NULL OR \"Depth\" > 0 AND \"ParentCommentId\" IS NOT NULL");
+                        });
+                });
+
+            modelBuilder.Entity("KromicCommerce.Domain.Support.TicketInvoice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Checksum")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("CreatedByAdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("EmailedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("EmailedToCustomer")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("GeneratedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("GenerationAttempts")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("InvoiceNumber")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool>("IsContentOverridden")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<DateTime?>("OverriddenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("OverriddenByAdminId")
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("PdfContent")
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTime>("QueuedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("SizeBytes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<Guid?>("TemplateId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByAdminId");
+
+                    b.HasIndex("InvoiceNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_ticket_invoices_invoice_number");
+
+                    b.HasIndex("OverriddenByAdminId");
+
+                    b.HasIndex("TemplateId");
+
+                    b.HasIndex("Status", "QueuedAtUtc")
+                        .HasDatabaseName("ix_ticket_invoices_status_queued");
+
+                    b.HasIndex("TicketId", "Revision")
+                        .IsUnique()
+                        .HasDatabaseName("ix_ticket_invoices_ticket_revision");
+
+                    b.ToTable("ticket_invoices", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_ticket_invoices_attempts", "\"GenerationAttempts\" >= 0 AND \"GenerationAttempts\" <= 3");
+
+                            t.HasCheckConstraint("ck_ticket_invoices_revision", "\"Revision\" >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("KromicCommerce.Domain.Support.TicketStatusHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid?>("ActorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActorName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FromStatus")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ToStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorId");
+
+                    b.HasIndex("TicketId", "OccurredAtUtc")
+                        .HasDatabaseName("ix_ticket_status_history_ticket_occurred");
+
+                    b.ToTable("ticket_status_history", (string)null);
+                });
+
             modelBuilder.Entity("KromicCommerce.Domain.Webhooks.WebhookEvent", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2563,6 +3157,241 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("KromicCommerce.Domain.Support.Ticket", b =>
+                {
+                    b.HasOne("KromicCommerce.Domain.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedAdminId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("KromicCommerce.Domain.Identity.User", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("KromicCommerce.Domain.Orders.Order", "RelatedOrder")
+                        .WithMany()
+                        .HasForeignKey("RelatedOrderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("RelatedOrder");
+                });
+
+            modelBuilder.Entity("KromicCommerce.Domain.Support.TicketAttachment", b =>
+                {
+                    b.HasOne("KromicCommerce.Domain.Support.TicketComment", "Comment")
+                        .WithMany("Attachments")
+                        .HasForeignKey("TicketCommentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Comment");
+                });
+
+            modelBuilder.Entity("KromicCommerce.Domain.Support.TicketComment", b =>
+                {
+                    b.HasOne("KromicCommerce.Domain.Identity.User", "Author")
+                        .WithMany()
+                        .HasForeignKey("AuthorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("KromicCommerce.Domain.Support.TicketComment", "Parent")
+                        .WithMany()
+                        .HasForeignKey("ParentCommentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("KromicCommerce.Domain.Support.Ticket", "Ticket")
+                        .WithMany("Comments")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Author");
+
+                    b.Navigation("Parent");
+
+                    b.Navigation("Ticket");
+                });
+
+            modelBuilder.Entity("KromicCommerce.Domain.Support.TicketInvoice", b =>
+                {
+                    b.HasOne("KromicCommerce.Domain.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByAdminId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("KromicCommerce.Domain.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("OverriddenByAdminId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("KromicCommerce.Domain.Support.InvoiceTemplate", null)
+                        .WithMany()
+                        .HasForeignKey("TemplateId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("KromicCommerce.Domain.Support.Ticket", "Ticket")
+                        .WithMany()
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.OwnsOne("KromicCommerce.Domain.Support.InvoiceContent", "Content", b1 =>
+                        {
+                            b1.Property<Guid>("TicketInvoiceId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("AccentColor")
+                                .IsRequired()
+                                .HasMaxLength(6)
+                                .HasColumnType("character varying(6)")
+                                .HasColumnName("accent_color");
+
+                            b1.Property<string>("BillToAddress")
+                                .HasMaxLength(300)
+                                .HasColumnType("character varying(300)")
+                                .HasColumnName("bill_to_address");
+
+                            b1.Property<string>("BillToEmail")
+                                .HasMaxLength(300)
+                                .HasColumnType("character varying(300)")
+                                .HasColumnName("bill_to_email");
+
+                            b1.Property<string>("BillToName")
+                                .IsRequired()
+                                .HasMaxLength(300)
+                                .HasColumnType("character varying(300)")
+                                .HasColumnName("bill_to_name");
+
+                            b1.Property<decimal>("CodFee")
+                                .HasColumnType("numeric")
+                                .HasColumnName("cod_fee");
+
+                            b1.Property<string>("CurrencyCode")
+                                .IsRequired()
+                                .HasMaxLength(3)
+                                .HasColumnType("character varying(3)")
+                                .HasColumnName("currency_code");
+
+                            b1.Property<decimal>("DiscountAmount")
+                                .HasColumnType("numeric")
+                                .HasColumnName("discount_amount");
+
+                            b1.Property<DateTime?>("DueDateUtc")
+                                .HasColumnType("timestamp with time zone")
+                                .HasColumnName("due_date_utc");
+
+                            b1.Property<string>("FooterNote")
+                                .HasMaxLength(1000)
+                                .HasColumnType("character varying(1000)")
+                                .HasColumnName("footer_note");
+
+                            b1.Property<decimal>("GrandTotal")
+                                .HasColumnType("numeric")
+                                .HasColumnName("grand_total");
+
+                            b1.Property<DateTime>("InvoiceDateUtc")
+                                .HasColumnType("timestamp with time zone")
+                                .HasColumnName("invoice_date_utc");
+
+                            b1.Property<string>("IssuerAddress")
+                                .HasMaxLength(300)
+                                .HasColumnType("character varying(300)")
+                                .HasColumnName("issuer_address");
+
+                            b1.Property<string>("IssuerEmail")
+                                .HasMaxLength(300)
+                                .HasColumnType("character varying(300)")
+                                .HasColumnName("issuer_email");
+
+                            b1.Property<string>("IssuerName")
+                                .IsRequired()
+                                .HasMaxLength(200)
+                                .HasColumnType("character varying(200)")
+                                .HasColumnName("issuer_name");
+
+                            b1.Property<string>("IssuerTaxId")
+                                .HasMaxLength(120)
+                                .HasColumnType("character varying(120)")
+                                .HasColumnName("issuer_tax_id");
+
+                            b1.Property<string>("LineItemsJson")
+                                .IsRequired()
+                                .HasColumnType("text")
+                                .HasColumnName("line_items_json");
+
+                            b1.Property<string>("Notes")
+                                .HasMaxLength(2000)
+                                .HasColumnType("character varying(2000)")
+                                .HasColumnName("notes");
+
+                            b1.Property<string>("OrderNumber")
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("order_number");
+
+                            b1.Property<decimal>("ShippingAmount")
+                                .HasColumnType("numeric")
+                                .HasColumnName("shipping_amount");
+
+                            b1.Property<decimal>("Subtotal")
+                                .HasColumnType("numeric")
+                                .HasColumnName("subtotal");
+
+                            b1.Property<decimal>("TaxAmount")
+                                .HasColumnType("numeric")
+                                .HasColumnName("tax_amount");
+
+                            b1.Property<string>("Terms")
+                                .HasMaxLength(4000)
+                                .HasColumnType("character varying(4000)")
+                                .HasColumnName("terms");
+
+                            b1.Property<string>("TicketNumber")
+                                .IsRequired()
+                                .HasMaxLength(64)
+                                .HasColumnType("character varying(64)")
+                                .HasColumnName("ticket_number");
+
+                            b1.Property<string>("TicketSubject")
+                                .HasMaxLength(200)
+                                .HasColumnType("character varying(200)")
+                                .HasColumnName("ticket_subject");
+
+                            b1.HasKey("TicketInvoiceId");
+
+                            b1.ToTable("ticket_invoices");
+
+                            b1.WithOwner()
+                                .HasForeignKey("TicketInvoiceId");
+                        });
+
+                    b.Navigation("Content")
+                        .IsRequired();
+
+                    b.Navigation("Ticket");
+                });
+
+            modelBuilder.Entity("KromicCommerce.Domain.Support.TicketStatusHistory", b =>
+                {
+                    b.HasOne("KromicCommerce.Domain.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("KromicCommerce.Domain.Support.Ticket", "Ticket")
+                        .WithMany("History")
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ticket");
+                });
+
             modelBuilder.Entity("KromicCommerce.Domain.Cart.Cart", b =>
                 {
                     b.Navigation("Items");
@@ -2611,6 +3440,18 @@ namespace KromicCommerce.Infrastructure.Persistence.Migrations
                     b.Navigation("Categories");
 
                     b.Navigation("Products");
+                });
+
+            modelBuilder.Entity("KromicCommerce.Domain.Support.Ticket", b =>
+                {
+                    b.Navigation("Comments");
+
+                    b.Navigation("History");
+                });
+
+            modelBuilder.Entity("KromicCommerce.Domain.Support.TicketComment", b =>
+                {
+                    b.Navigation("Attachments");
                 });
 #pragma warning restore 612, 618
         }

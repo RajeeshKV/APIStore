@@ -6,6 +6,7 @@ using KromicCommerce.Domain.Orders;
 using KromicCommerce.Domain.Outbox;
 using KromicCommerce.Domain.Promotions;
 using KromicCommerce.Domain.Sms;
+using KromicCommerce.Domain.Support;
 using KromicCommerce.Domain.Webhooks;
 using KromicCommerce.Infrastructure.Persistence.Converters;
 
@@ -82,6 +83,17 @@ public sealed class AppDbContext(
     // -----------------------------------------------------------------------
     public DbSet<Promotion> Promotions => Set<Promotion>();
     public DbSet<PromotionUsage> PromotionUsages => Set<PromotionUsage>();
+
+    // -----------------------------------------------------------------------
+    // Support
+    // -----------------------------------------------------------------------
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+    public DbSet<TicketComment> TicketComments => Set<TicketComment>();
+    public DbSet<TicketAttachment> TicketAttachments => Set<TicketAttachment>();
+    public DbSet<TicketStatusHistory> TicketStatusHistory => Set<TicketStatusHistory>();
+    public DbSet<TicketInvoice> TicketInvoices => Set<TicketInvoice>();
+    public DbSet<InvoiceTemplate> InvoiceTemplates => Set<InvoiceTemplate>();
+    public DbSet<SupportSettings> SupportSettings => Set<SupportSettings>();
 
     // -----------------------------------------------------------------------
     // EF configuration
@@ -334,6 +346,32 @@ public sealed class AppDbContext(
 
         return affected == 1;
     }
+
+    // -----------------------------------------------------------------------
+    // Ticket / invoice reference numbers
+    //
+    // PostgreSQL sequence, not "COUNT the rows for today". A count-based allocator reads
+    // then writes, so two concurrent ticket creates both observe count N and both try to
+    // insert N+1 — one of them loses on the unique index and the customer sees a 500. A
+    // sequence allocates atomically inside the database, so no application lock is needed
+    // and the API can be scaled to several instances.
+    //
+    // The value is formatted as TKT-<year>-<seq:000000> by the caller. A single shared
+    // sequence covers both tickets and invoices: two counters would allocate disjoint ranges
+    // that a reader could not tell apart, and one counter is simpler to reason about.
+    // -----------------------------------------------------------------------
+
+    private const string TicketReferenceSequenceName = "ticket_reference_seq";
+
+    // SqlQueryRaw, NOT the interpolated SqlQuery overload. The latter treats every {hole} as
+    // a query parameter, so `nextval('{name}')` would be sent as nextval('@p0') with the name
+    // bound as text — PostgreSQL would then look for a relation literally called "@p0" and fail
+    // with 42P01 on the customer's first ticket. Raw interpolation is safe here because the
+    // name is a private const, never caller input.
+    public async Task<long> NextTicketReferenceSequenceAsync(CancellationToken cancellationToken = default)
+        => await Database
+            .SqlQueryRaw<long>($"SELECT nextval('{TicketReferenceSequenceName}') AS \"Value\"")
+            .SingleAsync(cancellationToken);
 
     private static string GenerateAnonymousCartId()
     {

@@ -40,6 +40,16 @@ public static class ApplicationServiceExtensions
         services.AddScoped<Features.Catalog.Reviews.ProductReviewRatingRecalculator>();
         services.AddScoped<ICheckoutSummaryService, Services.CheckoutSummaryService>();
 
+        // ---------------------------------------------------------------------------
+        // Support desk
+        //
+        // Scoped so the settings provider and the reference generator share the request's
+        // DbContext — the reference generator reads a PostgreSQL sequence through it.
+        // ---------------------------------------------------------------------------
+        services.AddScoped<Features.Support.SupportSettingsProvider>();
+        services.AddScoped<Features.Support.TicketReferenceGenerator>();
+        services.AddScoped<Features.Support.InvoiceContentComposer>();
+
         return services;
     }
 }

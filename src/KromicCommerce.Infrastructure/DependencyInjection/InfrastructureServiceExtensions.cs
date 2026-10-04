@@ -9,6 +9,7 @@ using KromicCommerce.Application.Abstractions.Payments;
 using KromicCommerce.Application.Abstractions.Security;
 using KromicCommerce.Application.Abstractions.Sms;
 using KromicCommerce.Application.Abstractions.Store;
+using KromicCommerce.Application.Abstractions.Support;
 using KromicCommerce.Application.Options;
 using KromicCommerce.Infrastructure.Auth;
 using KromicCommerce.Infrastructure.BackgroundServices;
@@ -17,6 +18,7 @@ using KromicCommerce.Infrastructure.Catalog;
 using KromicCommerce.Infrastructure.Commerce;
 using KromicCommerce.Infrastructure.Configuration;
 using KromicCommerce.Infrastructure.Email;
+using KromicCommerce.Infrastructure.Invoicing;
 using KromicCommerce.Infrastructure.Media;
 using KromicCommerce.Infrastructure.Payments;
 using KromicCommerce.Infrastructure.Persistence;
@@ -45,6 +47,7 @@ public static class InfrastructureServiceExtensions
             .AddCatalogServices()
             .AddPaymentServices()
             .AddEmailServices()
+            .AddSupportServices()
             .AddSecurityServices(configuration)
             .AddBackgroundServices()
             .AddHttpContextAccessor();
@@ -68,6 +71,24 @@ public static class InfrastructureServiceExtensions
         services.AddAndValidate<BackgroundWorkerOptions>(configuration, BackgroundWorkerOptions.SectionName);
         services.AddAndValidate<WebhookOptions>(configuration, WebhookOptions.SectionName);
         services.AddAndValidate<AppOptions>(configuration, AppOptions.SectionName);
+
+        // Support desk. Bound without ValidateOnStart on purpose: a deployment that has not set
+        // Support:AdminNotificationEmail must still boot, because the support desk works without
+        // it — only the administrative alert is lost, and that is logged loudly per ticket.
+        services.AddOptions<SupportOptions>()
+            .Bind(configuration.GetSection(SupportOptions.SectionName))
+            .ValidateDataAnnotations();
+
+        // Bridge SupportOptions -> Application SupportPolicyOptions. The Application layer sees
+        // only policy values, never the Infrastructure configuration type.
+        services.AddOptions<SupportPolicyOptions>().Configure<IOptions<SupportOptions>>((policy, source) =>
+        {
+            policy.AdminNotificationEmail = source.Value.AdminNotificationEmail;
+            policy.AdminNotificationName = source.Value.AdminNotificationName;
+            policy.DefaultAutoCloseIdleHours = source.Value.DefaultAutoCloseIdleHours;
+            policy.TicketNumberPrefix = source.Value.TicketNumberPrefix;
+            policy.InvoiceNumberPrefix = source.Value.InvoiceNumberPrefix;
+        });
 
         // Tracking is optional — no startup validation, defaults to Manual provider
         services.AddOptions<TrackingOptions>().Bind(configuration.GetSection(TrackingOptions.SectionName));
@@ -375,6 +396,17 @@ public static class InfrastructureServiceExtensions
     }
 
     // -------------------------------------------------------------------------
+    // Support desk
+    // -------------------------------------------------------------------------
+    private static IServiceCollection AddSupportServices(this IServiceCollection services)
+    {
+        // Scoped: the renderer is stateless today, but registering it that way means a future
+        // implementation can hold a buffer pool or a font cache without a lifetime change here.
+        services.AddScoped<ITicketInvoiceRenderer, PdfInvoiceRenderer>();
+        return services;
+    }
+
+    // -------------------------------------------------------------------------
     // Security services (secret protection, data protection)
     // -------------------------------------------------------------------------
     private static IServiceCollection AddSecurityServices(
@@ -412,6 +444,12 @@ public static class InfrastructureServiceExtensions
     private static IServiceCollection AddBackgroundServices(this IServiceCollection services)
     {
         services.AddHostedService<OutboxProcessor>();
+
+        // Support automation. Both are self-scheduling and both tolerate a failing cycle by
+        // logging and retrying, because a silently stopped worker looks identical to "there was
+        // nothing to do" from the outside.
+        services.AddHostedService<TicketAutoCloseWorker>();
+        services.AddHostedService<TicketInvoiceWorker>();
         return services;
     }
 }

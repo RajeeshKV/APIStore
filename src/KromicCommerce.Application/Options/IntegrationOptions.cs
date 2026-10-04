@@ -24,7 +24,7 @@ public sealed class AppPublicOptions
     public string RazorpayWebhookUrl =>
         string.IsNullOrWhiteSpace(ApiBaseUrl)
             ? string.Empty
-            : $"{ApiBaseUrl.TrimEnd('/')}/api/v1/webhooks/payment";
+            : $"{ApiBaseUrl.TrimEnd('/')}/api/v1/payments/webhook";
 
     /// <summary>
     /// Frontend public URL for generating customer-facing links in emails.

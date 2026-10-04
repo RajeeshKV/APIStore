@@ -44,6 +44,28 @@ public interface IEmailService
     Task SendPasswordResetAsync(string toEmail, string recipientName, string resetToken, CancellationToken ct = default);
 
     // -----------------------------------------------------------------------
+    // Support desk
+    //
+    // The administrative notification recipient is resolved from configuration by the
+    // dispatcher, not from a request. No customer-supplied value ever reaches ToAddress.
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Tells an administrator that a ticket was opened or reopened. Both cases are one
+    /// method because the resulting inbox item is the same: "this needs a response".
+    /// </summary>
+    Task SendTicketAdminNotificationAsync(TicketAdminNotificationContext ctx, CancellationToken ct = default);
+
+    /// <summary>Tells a customer that their ticket changed state or received a reply.</summary>
+    Task SendTicketStatusEmailAsync(TicketCustomerNotificationContext ctx, CancellationToken ct = default);
+
+    /// <summary>
+    /// Mails a rendered invoice as an attachment. Controlled by the merchant's global
+    /// "automated invoice mailing" toggle, which the dispatcher checks before calling this.
+    /// </summary>
+    Task SendInvoiceEmailAsync(InvoiceMailContext ctx, CancellationToken ct = default);
+
+    // -----------------------------------------------------------------------
     // Legacy — kept for backward compatibility with existing outbox processor
     // -----------------------------------------------------------------------
 
@@ -63,3 +85,94 @@ public sealed record OrderEmailContext(
     string? SupportEmail,
     string? WebsiteUrl,
     string? FrontendUrl = null);
+
+// ---------------------------------------------------------------------------
+// Support desk contexts
+// ---------------------------------------------------------------------------
+
+/// <summary>Why an administrator is being emailed. Drives the subject line and the call to action.</summary>
+public enum TicketAdminAlertKind
+{
+    /// <summary>A brand new ticket.</summary>
+    Created = 0,
+
+    /// <summary>A previously resolved or closed ticket is back in the queue.</summary>
+    Reopened = 1,
+
+    /// <summary>The customer added a message to a ticket that is still open.</summary>
+    CustomerReplied = 2
+}
+
+/// <summary>What a customer is being told happened to their ticket.</summary>
+public enum TicketCustomerNoticeKind
+{
+    /// <summary>An administrator replied.</summary>
+    Replied = 0,
+
+    /// <summary>An administrator marked the ticket resolved.</summary>
+    Resolved = 1,
+
+    /// <summary>The ticket was closed.</summary>
+    Closed = 2
+}
+
+/// <summary>
+/// Administrative alert. Carries a deep link so the admin lands directly in the conversation
+/// rather than having to search for the reference number.
+/// </summary>
+public sealed record TicketAdminNotificationContext(
+    string AdminEmail,
+    string AdminName,
+    TicketAdminAlertKind Kind,
+    string TicketId,
+    string TicketNumber,
+    string Subject,
+    string CustomerName,
+    string CustomerEmail,
+    string? Description,
+    string Status,
+    int ReopenCount,
+    string? OrderNumber,
+    DateTime OccurredAtUtc,
+    string? AdminTicketUrl,
+    string BusinessName = "Store",
+    string? LogoUrl = null);
+
+/// <summary>Status or reply notification addressed to the customer who opened the ticket.</summary>
+public sealed record TicketCustomerNotificationContext(
+    string CustomerEmail,
+    string CustomerName,
+    TicketCustomerNoticeKind Kind,
+    string TicketId,
+    string TicketNumber,
+    string Subject,
+    string Status,
+    string? AdminName,
+    string? Note,
+    string? AttachmentUrl,
+    DateTime OccurredAtUtc,
+    string? FrontendTicketUrl,
+    string BusinessName = "Store",
+    string? LogoUrl = null,
+    string? SupportEmail = null);
+
+/// <summary>
+/// Everything needed to mail an invoice document. The subject is composed by the dispatcher
+/// rather than here so that the merchant's override and the default wording live in one place.
+/// </summary>
+public sealed record InvoiceMailContext(
+    string CustomerEmail,
+    string CustomerName,
+    string InvoiceNumber,
+    string TicketNumber,
+    string? OrderNumber,
+    string CurrencyCode,
+    decimal GrandTotal,
+    string Subject,
+    string HtmlBody,
+    byte[] PdfBytes,
+    string FileName,
+    string BusinessName,
+    string? LogoUrl = null,
+    string? SupportEmail = null,
+    string? WebsiteUrl = null);

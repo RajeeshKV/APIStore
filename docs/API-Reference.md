@@ -1213,9 +1213,10 @@ existing `Delivered` order for the customer containing the product. A client can
 
 There is also no `customerId` field. Ownership comes from the access token.
 
-Reviews are created with `Pending` status and become public only after an admin publishes them.
-One review per customer per product/variant is enforced by a unique database index, so a
-concurrent double-submit cannot create a duplicate â€” the loser gets `409`.
+Reviews are created with `Published` status and are public immediately — the submit response, the
+storefront review list, and the product's `ratingAverage`/`ratingCount` all reflect the new review
+without any admin step. One review per customer per product/variant is enforced by a unique
+database index, so a concurrent double-submit cannot create a duplicate — the loser gets `409`.
 
 **`PUT /api/v1/reviews/{reviewId}`** edits content only. It does not change status, publish time,
 verification, or ownership â€” editing a published review does **not** re-enter moderation.
@@ -1246,9 +1247,24 @@ Admin only.
 | PUT | `/api/v1/admin/reviews/{reviewId}/status` | `200` `AdminReviewResponse` |
 | DELETE | `/api/v1/admin/reviews/{reviewId}` | `204` |
 
-**`PUT â€¦/status`** â€” `{ "status": "Published" | "Rejected" | "Pending", "reason": "optional" }`.
+**`PUT …/status`** — `{ "status": "Published" | "Rejected" | "Pending", "reason": "optional" }`.
 Rejecting **requires** a reason, which is shown back to the author. An unrecognised `status`
 filter or body value is `400`, never silently ignored.
+
+Because submissions are already `Published`, this endpoint is how a review is *withdrawn* rather
+than approved. All three target statuses and the delete below recalculate the product's
+`ratingAverage`/`ratingCount` and evict the product graph in the same save, so the storefront
+reflects the decision immediately:
+
+| Action | Storefront list | `ratingCount` |
+|--------|-----------------|---------------|
+| `Pending` | review removed | decremented |
+| `Rejected` | review removed, reason shown to the author | decremented |
+| `DELETE` | review removed | decremented (to `0` when it was the last) |
+| `Published` (re-publish) | review restored | incremented |
+
+The `status` query parameter on the list endpoint filters the queue. Omit it for everything, or
+pass `Pending` to review only what has been pulled.
 
 Admin responses additionally include `customerId` and `customerEmail` so a moderator can identify
 who submitted the review.
@@ -1256,6 +1272,224 @@ who submitted the review.
 Errors: `PRODUCT_REVIEW_NOT_FOUND`, `PRODUCT_REVIEW_ALREADY_EXISTS`, `PRODUCT_REVIEW_SELF_VOTE`,
 `REVIEW_IMAGE_INVALID`, `REVIEW_REASON_REQUIRED`, `PRODUCT_NOT_FOUND`,
 `PRODUCT_VARIANT_MISMATCH`, `PRODUCT_VARIANT_UNAVAILABLE`.
+
+---
+
+## Support Tickets
+
+A conversation is opened by a customer, worked by an administrator, and closed either by the
+customer confirming the fix or by the idle worker after `AutoCloseIdleHours` of silence.
+
+The acting customer is taken from the access token on every route and is **never** read from a
+body, route, or query value. Ownership is re-checked inside each handler, so a guessed ticket id
+returns `404` rather than another customer's conversation — never `403`, which would confirm the
+id exists.
+
+### Lifecycle and who may perform each transition
+
+| Transition | Actor | Effect |
+|-----------|-------|--------|
+| Create | Customer | Ticket opens with a `TKT-<year>-<seq>` reference |
+| Comment / reply | Both | Appends to the thread; nesting via `parentCommentId` |
+| Resolve | **Admin only** | Arms the auto-close deadline |
+| Close | Customer (confirm) or the idle worker | Terminal state |
+| Reopen | Customer | Back to `Open`, increments `reopenCount` |
+
+Resolving is admin-only because it records a merchant commitment that the issue is handled. It is
+**not** a document trigger — invoices are produced from the order lifecycle, not from ticket
+resolution. See [Order Invoices](#order-invoices).
+
+### Customer routes
+
+| Method | Route | Result |
+|--------|-------|--------|
+| GET | `/api/v1/tickets?status=&page=&pageSize=` | `200` `PagedResponse<TicketSummaryResponse>` |
+| GET | `/api/v1/tickets/{ticketId}` | `200` `AdminTicketDetailResponse` |
+| POST | `/api/v1/tickets` | `201` created |
+| POST | `/api/v1/tickets/{ticketId}/comments` | `201` `TicketCommentResponse` |
+| POST | `/api/v1/tickets/media` | `201` `TicketMediaUploadResponse` |
+| POST | `/api/v1/tickets/{ticketId}/close` | `200` summary |
+| POST | `/api/v1/tickets/{ticketId}/reopen` | `200` summary |
+
+A typo in `status` is `400` rather than being silently ignored — an ignored filter on a queue
+looks identical to an empty queue.
+
+### Admin routes
+
+| Method | Route | Result |
+|--------|-------|--------|
+| GET | `/api/v1/admin/tickets?status=&priority=&search=&unansweredOnly=` | `200` `PagedResponse<TicketSummaryResponse>` |
+| GET | `/api/v1/admin/tickets/{ticketId}` | `200` `AdminTicketDetailResponse` |
+| POST | `/api/v1/admin/tickets/{ticketId}/comments?isInternalNote=` | `201` |
+| POST | `/api/v1/admin/tickets/{ticketId}/resolve` | `200` summary |
+| POST | `/api/v1/admin/tickets/{ticketId}/priority` | `200` summary |
+| POST | `/api/v1/admin/tickets/{ticketId}/assign` | `200` summary |
+| GET | `/api/v1/admin/support/settings` | `200` `SupportSettingsResponse` |
+| PUT | `/api/v1/admin/support/settings` | `200` `SupportSettingsResponse` |
+
+`POST /resolve` accepts `{ resolutionNote }`. It no longer accepts `requestInvoice` or
+`invoiceTemplateId` — invoicing is not driven by resolution.
+
+**Internal notes.** `isInternalNote=true` is admin-only and is filtered out of the customer's
+thread by the mapper, not merely hidden by the UI. An internal note never generates a customer
+email. Replying underneath an internal note is refused with `404` for a customer, because
+answering would reveal that the note exists.
+
+`SupportSettingsResponse` reports the administrative notification address as
+`adminNotificationConfigured` plus a masked `adminNotificationTarget`. The address itself is a
+deployment-level value (`Support__AdminNotificationEmail`) and is **not** editable from the
+admin API — a storefront-facing setting that rewrites the destination of operational mail is an
+open relay. Leaving it empty disables only that alert; the support desk itself keeps working.
+
+`SupportSettingsResponse` covers the support desk only: `autoCloseIdleHours`,
+`notifyAdminOnTicketCreated`, `notifyAdminOnTicketReopened`, `notifyCustomerOnTicketResolved`,
+`maxAttachmentsPerComment`. **No invoice fields remain here** — those moved to
+`BusinessSettings.Payment` (see [Order Invoices](#order-invoices)).
+
+### Attachment flow
+
+Uploading and commenting are separate steps so a comment is still writable when the media
+provider is down.
+
+1. `POST /api/v1/tickets/media` — `multipart/form-data` with one `file`. Returns `publicId`,
+   `secureUrl`, dimensions, and `durationSeconds` for video.
+2. `POST /api/v1/tickets/{ticketId}/comments` — reference the upload in `attachments`.
+
+```json
+{
+  "body": "Here is a photo of the damage.",
+  "parentCommentId": null,
+  "attachments": [
+    { "kind": "Image", "publicId": "support/<guid>/a1b2", "secureUrl": "https://res.cloudinary.com/…",
+      "format": "jpg", "contentType": "image/jpeg", "width": 1600, "height": 1200,
+      "sizeBytes": 284119, "altText": "Cracked panel" }
+  ]
+}
+```
+
+Accepted types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `image/avif` (10 MB);
+`video/mp4`, `video/webm`, `video/quicktime` (50 MB). An allow-list rather than a deny-list —
+this is a customer-facing upload path and a deny-list only covers the formats somebody already
+thought of.
+
+### Threading
+
+Comments are ordered by a materialised `threadPath`, so one indexed scan returns the whole
+conversation in reading order with no recursion and no self-join. `parentCommentId` nests a
+reply; omitting it posts at the top level. Maximum nesting is 6 levels.
+
+`POST /comments` on a **closed** ticket reopens it instead of posting onto a closed thread
+nobody is watching. The reopen is recorded in the status history with a note explaining it.
+
+### Auto-close
+
+A resolved ticket carries a persisted `autoCloseAtUtc`, which is what lets the worker issue a
+plain indexed range scan rather than loading candidates and doing date arithmetic. The deadline
+is re-stamped from **customer** activity only — an admin note 80 hours after resolution does not
+keep an abandoned conversation open. Changing the merchant setting afterwards cannot move a
+deadline that is already running, because the window in hours is stamped onto the ticket at
+resolution.
+
+Errors: `TICKET_NOT_FOUND`, `TICKET_NOT_OPEN`, `TICKET_COMMENT_NOT_FOUND`,
+`TICKET_COMMENT_INVALID`, `TICKET_CUSTOMER_NOT_FOUND`, `TICKET_ORDER_NOT_FOUND`,
+`INVALID_TICKET_STATUS`, `INVALID_TICKET_PRIORITY`, `INVALID_ATTACHMENT`,
+`INVALID_MIME_TYPE`, `FILE_TOO_LARGE`.
+
+---
+
+## Order Invoices
+
+A tax invoice per **order**. It is triggered by the order's money becoming committed, not by any
+support action. Full specification:
+[39 — Support Desk and Order Invoice Generation](39-Support-Desk-and-Invoice-Generation.md#part-b--order-invoice-generation).
+
+> **Not yet implemented.** The routes below are the target contract. The current code produces
+> invoices from ticket resolution; see section B.10 of the specification for the required rework.
+
+### Issue trigger
+
+| Payment method | Condition |
+|----------------|-----------|
+| Razorpay (prepaid) | Payment captured (`Paid` **and** `PaidAt` set) |
+| Cash on delivery | Order reaches `Delivered` |
+
+COD issues at `Delivered`, not at `Confirmed`, so a document never enters an "issued but unpaid"
+state that would later need mutating. A repeated or racing trigger event produces exactly one
+invoice.
+
+### Customer routes
+
+| Method | Route | Result |
+|--------|-------|--------|
+| GET | `/api/v1/orders/{id}/invoices` | `200` `OrderInvoiceListResponse` |
+| GET | `/api/v1/orders/invoices/{invoiceId}/download` | `200` PDF |
+
+A foreign order returns `404`, never `403`.
+
+### Admin routes
+
+| Method | Route | Result |
+|--------|-------|--------|
+| POST | `/api/v1/admin/orders/{id}/invoice/issue` | `201` queued, `200` already invoiced |
+| GET | `/api/v1/admin/orders/{id}/invoices` | `200` `OrderInvoiceListResponse` |
+| GET | `/api/v1/admin/invoices/{invoiceId}` | `200` `OrderInvoiceResponse` |
+| GET | `/api/v1/admin/invoices/{invoiceId}/download` | `200` PDF |
+| PUT | `/api/v1/admin/invoices/{invoiceId}/content` | `200` — `Pending` only |
+| POST | `/api/v1/admin/invoices/{invoiceId}/retry` | `200` — re-enqueue a `Failed` revision |
+| GET | `/api/v1/admin/invoices/templates` | `200` `InvoiceTemplateResponse[]` |
+| GET | `/api/v1/admin/invoices/templates/{templateId}` | `200` |
+| PUT | `/api/v1/admin/invoices/templates/{templateId}` | `200` |
+
+Manual issue (`POST .../invoice/issue`) covers pro-forma and delivery-challan needs. It is
+idempotent: `201` when a document was queued, `200` when the order already has one.
+
+### Numbering
+
+| Document | Sequence | Format | Example |
+|----------|----------|--------|---------|
+| Tax invoice | `invoice_reference_seq` | `{prefix}-{year}-{seq:000000}` | `INV-2026-000123` |
+| Tax invoice, revision 2+ | same | `…-R{revision}` | `INV-2026-000123-R2` |
+| Credit note | `invoice_reference_seq` | `{creditPrefix}-{year}-{seq:000000}` | `CRN-2026-000004` |
+
+Prefixes are merchant-editable (`invoiceNumberPrefix`, `creditNoteNumberPrefix`). Year is UTC.
+
+### Revisions and credit notes
+
+A new revision is created only for: manual re-issue, order cancellation (produces a **credit
+note**), or a refund. Comments, status changes and notes never create one — a revision is a new
+financial document, not a re-render.
+
+The previous revision becomes `superseded` and is **retained**, because it may already have been
+mailed and filed. `OrderInvoiceListResponse` returns `{ current, superseded[] }`.
+
+A credit note's `grandTotal` is the amount being reversed, not zero. It is emailed only when it
+references a captured refund; otherwise it is download-only.
+
+### Settings
+
+Invoice switches live in **`BusinessSettings.Payment`**, not in support settings:
+
+| Field | Default | Effect |
+|-------|---------|--------|
+| `invoiceAutoIssueEnabled` | `true` | `false` suppresses automatic queueing; manual issue still works |
+| `invoiceMailEnabled` | `true` | Master email switch. Turning it off stops the email only — the document stays generated and downloadable |
+| `invoiceMailSubjectOverride` | `null` | Blank restores the default subject |
+| `invoiceNumberPrefix` | `"INV"` | |
+| `creditNoteNumberPrefix` | `"CRN"` | |
+| `invoicePaymentTermsDays` | `0` | Due date on a manually issued pro-forma |
+
+### Money is never writable
+
+`OverrideInvoiceContentRequest` and `UpdateInvoiceTemplateRequest` carry wording and presentation
+only, and the override DTO has **no amount fields at all**. Every figure is frozen into the
+document at issue time from the order snapshot, so a presentation edit cannot alter a number and a
+template change cannot retroactively alter an issued invoice. Overrides are accepted only while a
+revision is `Pending`; once `Generated` the document is immutable.
+
+Errors: `ORDER_NOT_FOUND`, `ORDER_INVOICE_ALREADY_EXISTS`, `ORDER_INVOICE_NOT_ISSUABLE`,
+`ORDER_INVOICE_IMMUTABLE`, `ORDER_INVOICE_OVERRIDE_EMPTY`, `ORDER_CREDIT_NOTE_ALREADY_EXISTS`,
+`INVOICE_NOT_FOUND`, `INVOICE_DOCUMENT_NOT_READY`, `INVOICE_TEMPLATE_NOT_FOUND`,
+`INVALID_INVOICE_NUMBER_PREFIX`.
 
 ---
 
@@ -1267,10 +1501,10 @@ Errors: `PRODUCT_REVIEW_NOT_FOUND`, `PRODUCT_REVIEW_ALREADY_EXISTS`, `PRODUCT_RE
 | Customer Google auth only | `POST /auth/google` (issues application JWT) |
 | Admin password auth only | `POST /auth/login`, `POST /auth/request-password-reset`, `POST /auth/reset-password` |
 | Shared (any valid JWT) | `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all` |
-| Customer | Cart, checkout, orders, profile, addresses, wishlist, own reviews, coupon validation |
+| Customer | Cart, checkout, orders, profile, addresses, wishlist, own reviews, own tickets, **own order invoices**, coupon validation |
 | Customer or Admin | Coupon validation |
 | Public (anonymous reads) | Store settings, categories, brands, products, policies, OTP, **published product reviews** |
-| Admin only | All `/admin/` routes |
+| Admin only | All `/admin/` routes, ticket resolve / priority / assign, internal notes, order invoice issue / override / retry |
 | None (signed) | Payment webhook (`/api/v1/payments/webhook` â€” verified by HMAC signature) |
 
 Frontend guards are UX only. Authorization is enforced server-side on every request.

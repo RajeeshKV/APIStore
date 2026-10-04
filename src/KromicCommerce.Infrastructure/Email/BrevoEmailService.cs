@@ -210,6 +210,199 @@ internal sealed class BrevoEmailService(
     }
 
     // -----------------------------------------------------------------------
+    // Support desk
+    // -----------------------------------------------------------------------
+
+    public Task SendTicketAdminNotificationAsync(
+        TicketAdminNotificationContext ctx, CancellationToken ct = default)
+    {
+        var isReopen = ctx.Kind == TicketAdminAlertKind.Reopened;
+
+        var subject = isReopen
+            ? $"[Reopened] {ctx.TicketNumber} - {ctx.Subject}"
+            : $"[New] {ctx.TicketNumber} - {ctx.Subject}";
+
+        var banner = isReopen
+            ? """
+              <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:14px 16px;margin:0 0 18px">
+                <p style="margin:0;font-weight:bold;color:#92400e">
+                  This ticket was reopened by the customer.
+                </p>
+                <p style="margin:6px 0 0;color:#92400e;font-size:13px">
+                  Reopen #{ctx.ReopenCount}. The thread has continued since it was last closed.
+                </p>
+              </div>
+              """
+            : string.Empty;
+
+        var orderRow = ctx.OrderNumber is null
+            ? string.Empty
+            : $"""
+               <tr>
+                 <td style="padding:6px 0;color:#6b7280;width:130px">Order</td>
+                 <td style="padding:6px 0;color:#111827;font-weight:600">{H(ctx.OrderNumber)}</td>
+               </tr>
+               """;
+
+        var body = $"""
+            <h1 style="color:#1a1a1a;font-size:22px;margin:0 0 4px">
+              {(isReopen ? "A ticket was reopened" : "A new ticket needs a response")}
+            </h1>
+            <p style="color:#6b7280;font-size:13px;margin:0 0 16px">
+              {ctx.OccurredAtUtc:yyyy-MM-dd HH:mm} UTC &nbsp;·&nbsp; status <strong>{H(ctx.Status)}</strong>
+            </p>
+            {banner}
+            <div style="background:#f8f8f8;border-radius:6px;padding:16px;margin:0 0 18px">
+              <tr><td style="padding:6px 0;color:#6b7280;width:130px">Ticket</td>
+                  <td style="padding:6px 0;color:#111827;font-weight:700">{H(ctx.TicketNumber)}</td></tr>
+              <tr><td style="padding:6px 0;color:#6b7280">Subject</td>
+                  <td style="padding:6px 0;color:#111827">{H(ctx.Subject)}</td></tr>
+              <tr><td style="padding:6px 0;color:#6b7280">Customer</td>
+                  <td style="padding:6px 0;color:#111827">
+                    {H(ctx.CustomerName)} &lt;{H(ctx.CustomerEmail)}&gt;</td></tr>
+              {orderRow}
+            </div>
+            <p style="color:#444;margin:0 0 10px;white-space:pre-wrap">{H(ctx.Description)}</p>
+            {OpenTicketButton(ctx.AdminTicketUrl, isReopen)}
+            """;
+
+        return SendAsync(ctx.AdminEmail, ctx.AdminName, subject, BuildShell(ctx, body), ct);
+    }
+
+    public Task SendTicketStatusEmailAsync(
+        TicketCustomerNotificationContext ctx, CancellationToken ct = default)
+    {
+        var subject = ctx.Kind switch
+        {
+            TicketCustomerNoticeKind.Replied => $"New reply on ticket {ctx.TicketNumber}",
+            TicketCustomerNoticeKind.Resolved => $"Your ticket {ctx.TicketNumber} has been resolved",
+            TicketCustomerNoticeKind.Closed => $"Ticket {ctx.TicketNumber} is now closed",
+            _ => $"Update on ticket {ctx.TicketNumber}"
+        };
+
+        var heading = ctx.Kind switch
+        {
+            TicketCustomerNoticeKind.Replied => "We have replied to your ticket",
+            TicketCustomerNoticeKind.Resolved => "Your ticket has been resolved",
+            TicketCustomerNoticeKind.Closed => "Your ticket is now closed",
+            _ => "Your ticket has been updated"
+        };
+
+        var (tint, border, body) = ctx.Kind switch
+        {
+            TicketCustomerNoticeKind.Resolved => (
+                "#f0fdf4", "#bbf7d0",
+                """
+                <p style="color:#444;margin:0 0 12px">
+                  We believe the issue is now resolved. If that is not the case, simply reply to
+                  this ticket and it will be reopened automatically - no need to raise a new one.
+                </p>
+                """),
+            TicketCustomerNoticeKind.Closed => (
+                "#f8f8f8", "#e5e7eb",
+                """
+                <p style="color:#444;margin:0 0 12px">
+                  This conversation is now closed. Replying at any point in the next while will
+                  reopen it with the full history intact.
+                </p>
+                """),
+            _ => (
+                "#eff6ff", "#bfdbfe",
+                $"""
+                 <p style="color:#444;margin:0 0 12px">
+                   {H(ctx.AdminName ?? "Our team")} has replied to your ticket.
+                 </p>
+                 """)
+        };
+
+        var noteHtml = string.IsNullOrWhiteSpace(ctx.Note)
+            ? string.Empty
+            : $"""
+               <div style="background:#ffffff;border-left:3px solid {border};padding:12px 14px;margin:0 0 16px">
+                 <p style="margin:0;color:#444;font-size:13px;white-space:pre-wrap">{H(ctx.Note)}</p>
+               </div>
+               """;
+
+        var attachmentHtml = ctx.AttachmentUrl is null
+            ? string.Empty
+            : $"""
+               <p style="color:#6b7280;font-size:13px;margin:0 0 12px">
+                 An attachment was included with the reply:
+                 <a href="{H(ctx.AttachmentUrl)}" style="color:#2563eb">view it</a>
+               </p>
+               """;
+
+        var content = $"""
+            <h1 style="color:#1a1a1a;font-size:22px;margin:0 0 16px">{heading}</h1>
+            <div style="background:{tint};border:1px solid {border};border-radius:6px;padding:16px;margin:0 0 18px">
+              <p style="margin:0 0 4px">
+                <strong style="color:#111827">{H(ctx.TicketNumber)}</strong>
+                &nbsp;&middot;&nbsp;
+                <span style="color:#6b7280;font-size:13px">{H(ctx.Subject)}</span>
+              </p>
+              <p style="margin:6px 0 0;color:#6b7280;font-size:13px">{ctx.OccurredAtUtc:yyyy-MM-dd HH:mm} UTC</p>
+            </div>
+            {body}
+            {noteHtml}
+            {attachmentHtml}
+            {ViewTicketButton(ctx.FrontendTicketUrl)}
+            """;
+
+        return SendAsync(ctx.CustomerEmail, ctx.CustomerName, subject, BuildShell(ctx, content), ct);
+    }
+
+    public Task SendInvoiceEmailAsync(InvoiceMailContext ctx, CancellationToken ct = default)
+    {
+        return SendWithAttachmentAsync(
+            ctx.CustomerEmail,
+            ctx.CustomerName,
+            ctx.Subject,
+            ctx.HtmlBody,
+            ctx.PdfBytes,
+            ctx.FileName,
+            ct);
+    }
+
+    private static string OpenTicketButton(string? url, bool isReopen)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return string.Empty;
+
+        var label = isReopen ? "Open Ticket" : "View Ticket";
+        return $"""
+            <div style="margin:24px 0">
+              <a href="{H(url)}"
+                 style="background:#1a1a1a;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block">
+                {label}
+              </a>
+            </div>
+            """;
+    }
+
+    private static string ViewTicketButton(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return string.Empty;
+        return $"""
+            <div style="margin:24px 0">
+              <a href="{H(url)}"
+                 style="background:#1a1a1a;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block">
+                View Ticket
+              </a>
+            </div>
+            """;
+    }
+
+    /// <summary>Wraps support-desk bodies in the same shell as transactional order email.</summary>
+    private string BuildShell(TicketAdminNotificationContext ctx, string body) => BuildEmail(
+        new OrderEmailContext(
+            ctx.AdminEmail, ctx.AdminName, ctx.TicketNumber, 0m, string.Empty,
+            ctx.BusinessName, ctx.LogoUrl, null, null, null), body);
+
+    private string BuildShell(TicketCustomerNotificationContext ctx, string body) => BuildEmail(
+        new OrderEmailContext(
+            ctx.CustomerEmail, ctx.CustomerName, ctx.TicketNumber, 0m, string.Empty,
+            ctx.BusinessName, ctx.LogoUrl, ctx.SupportEmail, null, ctx.FrontendTicketUrl), body);
+
+    // -----------------------------------------------------------------------
     // Legacy compatibility
     // -----------------------------------------------------------------------
 
@@ -282,6 +475,57 @@ internal sealed class BrevoEmailService(
     private async Task SendAsync(
         string toEmail, string toName, string subject, string html, CancellationToken ct)
     {
+        var payload = new
+        {
+            sender = new { email = options.Value.SenderEmail, name = options.Value.SenderName },
+            to = new[] { new { email = toEmail, name = toName } },
+            subject,
+            htmlContent = html
+        };
+
+        await PostAsync(payload, toEmail, subject, ct);
+    }
+
+    /// <summary>
+    /// Sends a message with one binary attachment.
+    ///
+    /// Brevo accepts attachments inline as base64 rather than by URL. That is what makes the
+    /// invoice pipeline self-contained: the PDF lives in our database, so there is no public URL
+    /// to hand the provider, and no window in which a document could be fetched by anyone who
+    /// guessed the link. The cost is roughly a third again on the request body, which for a
+    /// few-kilobyte invoice is irrelevant.
+    /// </summary>
+    private async Task SendWithAttachmentAsync(
+        string toEmail,
+        string toName,
+        string subject,
+        string html,
+        byte[] attachment,
+        string fileName,
+        CancellationToken ct)
+    {
+        var payload = new
+        {
+            sender = new { email = options.Value.SenderEmail, name = options.Value.SenderName },
+            to = new[] { new { email = toEmail, name = toName } },
+            subject,
+            htmlContent = html,
+            attachment = new[]
+            {
+                new
+                {
+                    name = string.IsNullOrWhiteSpace(fileName) ? "invoice.pdf" : fileName,
+                    content = Convert.ToBase64String(attachment)
+                }
+            }
+        };
+
+        await PostAsync(payload, toEmail, subject, ct);
+    }
+
+    private async Task PostAsync<TPayload>(
+        TPayload payload, string toEmail, string subject, CancellationToken ct)
+    {
         var opts = options.Value;
         try
         {
@@ -290,25 +534,19 @@ internal sealed class BrevoEmailService(
             client.DefaultRequestHeaders.Add("api-key", opts.ApiKey);
             client.DefaultRequestHeaders.Add("accept", "application/json");
 
-            var payload = new
-            {
-                sender = new { email = opts.SenderEmail, name = opts.SenderName },
-                to = new[] { new { email = toEmail, name = toName } },
-                subject,
-                htmlContent = html
-            };
-
             var response = await client.PostAsJsonAsync(ApiBaseUrl, payload, ct);
 
-            if (!response.IsSuccessStatusCode)
+            if (response.IsSuccessStatusCode)
             {
-                logger.LogError(
-                    "Brevo email send failed. StatusCode: {Code} To: {To} Subject: {Subject}",
-                    (int)response.StatusCode, toEmail, subject);
+                logger.LogInformation("Email sent. To: {To} Subject: {Subject}", toEmail, subject);
             }
             else
             {
-                logger.LogInformation("Email sent. To: {To} Subject: {Subject}", toEmail, subject);
+                // Status only. The response body can echo the payload, which for an invoice
+                // includes the customer's address and the document itself.
+                logger.LogError(
+                    "Brevo email send failed. StatusCode: {Code} To: {To} Subject: {Subject}",
+                    (int)response.StatusCode, toEmail, subject);
             }
         }
         catch (Exception ex)

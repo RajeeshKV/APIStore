@@ -111,11 +111,22 @@ is added later.
 
 Enums persist as strings in this schema, so `ReviewStatus` stores its name.
 
-### 2.6 Public visibility requires a published status
+### 2.6 Reviews are published on submission
 
-Only `Status == Published` reviews appear in the public list, the product detail
-aggregate, and any `rating`/`helpful` sort. A `Pending` review is visible to its
-author in `GET /api/v1/reviews/mine` and in an admin list, and nowhere else.
+Submissions are created `Published` and are public immediately — the storefront list, the product
+detail aggregate, and the `rating`/`helpful` sorts all include them in the same request that wrote
+them. There is no pre-publication gate: a customer who has just written a review sees it.
+
+The admin levers replace the gate, and all three take effect at once, because every one of them
+runs the recalculator in the same save:
+
+- `Pending` — withdraws it from the storefront; the aggregate drops.
+- `Rejected` — same, plus a required reason shown back to the author.
+- `DELETE` — removes it; the aggregate drops.
+
+A `Pending` review stays visible to its author in `GET /api/v1/reviews/mine` and in an admin list,
+so a customer who had theirs pulled can see that it exists and edit or delete it rather than
+wondering whether it saved.
 
 ### 2.7 No soft delete, consistent with the schema
 
@@ -493,8 +504,10 @@ actually under test.
 - Reviewing one's own review for helpfulness is rejected.
 - Duplicate submit for the same customer/product/variant returns `409`, not a
   duplicate row.
-- Auto-publish policy path yields `Published` + `PublishedAtUtc`; approval-required
-  path yields `Pending` and an unpublished aggregate.
+- Submit yields `Published` + `PublishedAtUtc`, and the review is readable from the storefront
+  and counted in the aggregate in the same request.
+- Returning a review to `Pending`, rejecting it, or deleting it each withdraw it from the
+  storefront and drop it from the aggregate.
 - Aggregate recalculation covers publish, unpublish, reject, edit, and delete-to-zero
   (`RatingAverage` returns to `0`, not left at the last value).
 - Clear-wishlist deletes only the calling customer's rows.

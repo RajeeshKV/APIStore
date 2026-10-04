@@ -26,6 +26,15 @@ internal sealed class CloudinaryService(
     private static readonly HashSet<string> AllowedExtensions =
         [".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"];
 
+    /// <summary>
+    /// Video ceilings. Tighter than the image limit and with a duration cap, because a ticket
+    /// attachment is supporting evidence for a conversation and not a media library: an
+    /// unbounded upload here is a way to spend the storage budget on a single comment.
+    /// </summary>
+    private const long MaxVideoBytes = 25 * 1024 * 1024; // 25 MB
+    private static readonly HashSet<string> AllowedVideoExtensions =
+        [".mp4", ".mov", ".webm", ".m4v", ".avi", ".mkv"];
+
     private Cloudinary CreateClient()
     {
         var opts = options.Value;
@@ -89,6 +98,78 @@ internal sealed class CloudinaryService(
         catch (Exception ex)
         {
             logger.LogError(ex, "Unexpected Cloudinary upload error for file {FileName}", fileName);
+            return new CloudinaryUploadResult(false, null, null, null, null, null, ex.Message);
+        }
+    }
+
+    public async Task<CloudinaryUploadResult> UploadVideoAsync(
+        Stream stream,
+        string fileName,
+        string folder,
+        string? altText = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (stream.Length > MaxVideoBytes)
+            return new CloudinaryUploadResult(false, null, null, null, null, null,
+                $"File size exceeds maximum allowed ({MaxVideoBytes / 1024 / 1024} MB).");
+
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        if (!AllowedVideoExtensions.Contains(ext))
+            return new CloudinaryUploadResult(false, null, null, null, null, null,
+                $"File type '{ext}' is not allowed. Allowed: {string.Join(", ", AllowedVideoExtensions)}");
+
+        try
+        {
+            var uploadFolder = string.IsNullOrWhiteSpace(options.Value.UploadFolder)
+                ? folder
+                : $"{options.Value.UploadFolder}/{folder}";
+
+            // Cloudinary models video as its own resource with its own params type; the
+            // generic image params reject a ResourceType assignment, so video gets the
+            // dedicated path rather than a flag on the image one.
+            var uploadParams = new VideoUploadParams
+            {
+                File = new FileDescription(fileName, stream),
+                Folder = uploadFolder,
+                UseFilename = false,
+                UniqueFilename = true,
+                Overwrite = false,
+                Context = altText is not null
+                    ? new StringDictionary { { "alt", altText } }
+                    : null
+            };
+
+            var client = CreateClient();
+            var result = await client.UploadAsync(uploadParams, cancellationToken);
+
+            if (result.Error is not null)
+            {
+                logger.LogError("Cloudinary video upload error: {Message}", result.Error.Message);
+                return new CloudinaryUploadResult(false, null, null, null, null, null, result.Error.Message);
+            }
+
+            logger.LogInformation(
+                "Cloudinary video upload success. PublicId: {PublicId} Duration: {Duration}",
+                result.PublicId, result.Duration);
+
+            return new CloudinaryUploadResult(
+                true,
+                result.PublicId,
+                result.SecureUrl?.ToString(),
+                result.Format,
+                (int?)result.Width,
+                (int?)result.Height,
+                null)
+            {
+                // The SDK reports fractional seconds. Floored so a stored duration never claims
+                // to be longer than the clip actually is. A non-positive value is treated as
+                // "unknown" rather than stored as a zero-length clip.
+                DurationSeconds = result.Duration > 0 ? (int)Math.Floor(result.Duration) : null
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unexpected Cloudinary video upload error for file {FileName}", fileName);
             return new CloudinaryUploadResult(false, null, null, null, null, null, ex.Message);
         }
     }

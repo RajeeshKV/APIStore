@@ -1,7 +1,8 @@
 using System.Text.Json;
 using KromicCommerce.Application.Abstractions.Email;
-using KromicCommerce.Application.Abstractions.Store;
+using KromicCommerce.Application.Features.Support;
 using KromicCommerce.Application.Options;
+using KromicCommerce.Application.Abstractions.Store;
 using KromicCommerce.Infrastructure.Configuration;
 using KromicCommerce.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,9 +16,11 @@ namespace KromicCommerce.Infrastructure.BackgroundServices;
 /// Retries up to MaxRetries before permanently sealing a failed event.
 /// Email/SMS failures do NOT corrupt the core order state — side effects are decoupled.
 /// </summary>
-internal sealed class OutboxProcessor(
+internal sealed partial class OutboxProcessor(
     IServiceScopeFactory scopeFactory,
     IOptions<BackgroundWorkerOptions> workerOptions,
+    IOptions<SupportPolicyOptions> supportOptions,
+    IOptions<AppOptions> deployOptions,
     ILogger<OutboxProcessor> logger)
     : BackgroundService
 {
@@ -217,6 +220,24 @@ internal sealed class OutboxProcessor(
                 var ctx = await BuildOrderContextAsync(evt, db, settings, appOptions, ct);
                 if (ctx is null) return;
                 await emailSvc.SendPaymentConfirmationAsync(ctx, ct);
+                break;
+            }
+
+            // -----------------------------------------------------------------------
+            // Support desk
+            //
+            // The administrative recipient is read from SupportOptions, never from the
+            // payload, so nothing a customer writes can redirect operational mail.
+            // Implementation lives in OutboxProcessor.Support.cs.
+            // -----------------------------------------------------------------------
+            case TicketOutbox.Created:
+            case TicketOutbox.Reopened:
+            case TicketOutbox.Resolved:
+            case TicketOutbox.Closed:
+            case TicketOutbox.CommentPosted:
+            case TicketOutbox.InvoiceGenerated:
+            {
+                await DispatchSupportAsync(evt, db, emailSvc, settings, appOptions, ct);
                 break;
             }
 

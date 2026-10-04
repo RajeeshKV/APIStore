@@ -34,8 +34,9 @@ internal sealed class GetProductReviewsHandler(
 
         var baseQuery = db.ProductReviews
             .AsNoTracking()
-            // Only Published is ever public. A Pending review belongs to its author and the
-            // moderation queue, never to a storefront response.
+            // Only Published is ever public. Submissions arrive already published, so this is not
+            // a moderation gate — it is what an admin's later "return to pending" or rejection
+            // takes effect on, immediately and everywhere.
             .Where(r => r.ProductId == query.ProductId && r.Status == ReviewStatus.Published);
 
         if (query.Rating.HasValue)

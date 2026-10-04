@@ -7,6 +7,7 @@ using KromicCommerce.Domain.Outbox;
 using KromicCommerce.Domain.Promotions;
 using KromicCommerce.Domain.Sms;
 using KromicCommerce.Domain.Store;
+using KromicCommerce.Domain.Support;
 using KromicCommerce.Domain.Webhooks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -82,7 +83,34 @@ public interface IApplicationDbContext
     DbSet<Promotion> Promotions { get; }
     DbSet<PromotionUsage> PromotionUsages { get; }
 
+    // -----------------------------------------------------------------------
+    // Support
+    // -----------------------------------------------------------------------
+    DbSet<Ticket> Tickets { get; }
+    DbSet<TicketComment> TicketComments { get; }
+    DbSet<TicketAttachment> TicketAttachments { get; }
+    DbSet<TicketStatusHistory> TicketStatusHistory { get; }
+    DbSet<TicketInvoice> TicketInvoices { get; }
+    DbSet<InvoiceTemplate> InvoiceTemplates { get; }
+    DbSet<SupportSettings> SupportSettings { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    // -----------------------------------------------------------------------
+    // Human-readable reference numbers
+    //
+    // Ticket and invoice numbers are quoted by customers in email support and printed on
+    // documents that may be filed for accounting, so they have to be unique and they have
+    // to stay unique under concurrency. A handler that counted today's rows to derive the
+    // next number would race: two simultaneous creates both read count N and both try N+1.
+    //
+    // These methods call a PostgreSQL sequence, which is the only allocator that can hand out
+    // a gap-free-until-exhaustion value without an application-level lock. Ids remain GUIDs
+    // everywhere else — only the externally quoted reference is sequential.
+    // -----------------------------------------------------------------------
+
+    /// <summary>Next value of the shared ticket/invoice reference sequence.</summary>
+    Task<long> NextTicketReferenceSequenceAsync(CancellationToken cancellationToken = default);
 
     // -----------------------------------------------------------------------
     // Cart atomic operations
