@@ -12,23 +12,13 @@ internal sealed class GetMyTicketsQueryHandler(IApplicationDbContext db)
 
         // The owner filter is applied here, from the token-derived CustomerId. There is no
         // request field that could widen it.
-        var baseQuery = TicketReadModel.Project(db)
-            .Where(p => p.CustomerId == query.CustomerId);
+        var filtered = db.Tickets.AsNoTracking()
+            .Where(t => t.CustomerId == query.CustomerId);
 
         if (query.Status is { } status)
-            baseQuery = baseQuery.Where(p => p.Status == status);
+            filtered = filtered.Where(t => t.Status == status);
 
-        var total = await baseQuery.CountAsync(ct);
-
-        var rows = await baseQuery
-            // Most recently touched first: a customer reopening an old ticket expects it at
-            // the top of their list, not at the bottom. Id is a deterministic tiebreak so
-            // paging cannot repeat or skip a row when two tickets share a timestamp.
-            .OrderByDescending(p => p.LastActivityAtUtc)
-            .ThenByDescending(p => p.Id)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(ct);
+        var (rows, total) = await TicketReadModel.LoadPageAsync(filtered, db, page, pageSize, ct);
 
         return Result.Success(new PagedResponse<TicketSummaryResponse>(
             rows.Select(TicketMapper.MapSummary).ToArray(), page, pageSize, total));
@@ -45,40 +35,44 @@ internal sealed class GetAdminTicketsQueryHandler(IApplicationDbContext db)
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
         var page = Math.Max(1, query.Page);
 
-        var baseQuery = TicketReadModel.Project(db);
+        // Filtered and ordered against the ticket table itself; the enriched projection is
+        // fetched afterwards for the ids that survive paging. See TicketReadModel.LoadPageAsync.
+        var filtered = db.Tickets.AsNoTracking();
 
         if (query.Status is { } status)
-            baseQuery = baseQuery.Where(p => p.Status == status);
+            filtered = filtered.Where(t => t.Status == status);
 
         if (query.Priority is { } priority)
-            baseQuery = baseQuery.Where(p => p.Priority == priority);
+            filtered = filtered.Where(t => t.Priority == priority);
 
-        // Reuses the flag the projection already computes rather than a second EXISTS:
         // Open and never answered by an administrator.
         if (query.UnansweredOnly == true)
-            baseQuery = baseQuery.Where(p => p.Status == TicketStatus.Open && p.FirstResponseAtUtc == null);
+            filtered = filtered.Where(t => t.Status == TicketStatus.Open && t.FirstResponseAtUtc == null);
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             // Provider-neutral match, consistent with the review admin queue. The term is
             // passed as a parameter, never concatenated, so it cannot alter the statement.
+            //
+            // Customer and order fields are matched with EXISTS subqueries rather than by
+            // joining those tables into the projection: joining leaves EF unable to reduce the
+            // ORDER BY back to a column, which fails translation.
+            //
+            // The name is matched as FirstName + " " + LastName in SQL because User.FullName is
+            // a computed property with no mapped column, so EF cannot translate it inside a
+            // predicate. COALESCE keeps a half-filled name searchable.
             var term = query.Search.Trim().ToLower();
-            baseQuery = baseQuery.Where(p =>
-                p.TicketNumber.ToLower().Contains(term) ||
-                p.Subject.ToLower().Contains(term) ||
-                p.CustomerName.ToLower().Contains(term) ||
-                p.CustomerEmail.ToLower().Contains(term) ||
-                (p.OrderNumber != null && p.OrderNumber.ToLower().Contains(term)));
+            filtered = filtered.Where(t =>
+                t.TicketNumber.ToLower().Contains(term) ||
+                t.Subject.ToLower().Contains(term) ||
+                db.Users.Any(u => u.Id == t.CustomerId &&
+                    ((u.FirstName ?? "") + " " + (u.LastName ?? "")).ToLower().Contains(term) ||
+                    u.Email.ToLower().Contains(term)) ||
+                (t.RelatedOrderId != null &&
+                 db.Orders.Any(o => o.Id == t.RelatedOrderId && o.OrderNumber.ToLower().Contains(term))));
         }
 
-        var total = await baseQuery.CountAsync(ct);
-
-        var rows = await baseQuery
-            .OrderByDescending(p => p.LastActivityAtUtc)
-            .ThenByDescending(p => p.Id)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync(ct);
+        var (rows, total) = await TicketReadModel.LoadPageAsync(filtered, db, page, pageSize, ct);
 
         return Result.Success(new PagedResponse<TicketSummaryResponse>(
             rows.Select(TicketMapper.MapSummary).ToArray(), page, pageSize, total));

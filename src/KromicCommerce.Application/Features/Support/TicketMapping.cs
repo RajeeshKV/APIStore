@@ -210,8 +210,7 @@ public sealed record TicketCommentNode(
     IReadOnlyList<TicketAttachmentResponse> Attachments);
 
 /// <summary>Everything a ticket list row needs, projected straight out of the query.</summary>
-public sealed record TicketSummaryProjection(
-    Guid Id,
+public sealed record TicketSummaryProjection(    Guid Id,
     string TicketNumber,
     string Subject,
     TicketStatus Status,
