@@ -147,6 +147,13 @@ internal sealed class DeleteVariantHandler(IApplicationDbContext db, ICatalogCac
         if (inventoryItem is not null)
             db.InventoryItems.Remove(inventoryItem);
 
+        // Remove variant-scoped images. Product-level images are untouched.
+        var variantImages = await db.ProductImages
+            .Where(i => i.VariantId == cmd.VariantId)
+            .ToListAsync(ct);
+        foreach (var img in variantImages)
+            db.ProductImages.Remove(img);
+
         db.ProductVariants.Remove(variant);
         await db.SaveChangesAsync(ct);
 

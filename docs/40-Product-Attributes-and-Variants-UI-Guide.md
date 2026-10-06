@@ -433,9 +433,10 @@ Ordered by how likely they are to bite.
 **1. No server-side variant resolver.** If your frontend cannot compute the combination, there is no
 API to call. This is the single largest piece of missing functionality, and §6 is the whole of it.
 
-**2. No variant images.** Selecting "Red" cannot change the photo. `product_images` has no
-`VariantId` and `StorefrontVariantResponse` has no image field. If colour matters visually, this
-needs a schema change — it cannot be worked around in the UI.
+**2. Variant images are implemented.** Selecting "Red" can now change the photo. Variant images
+are uploaded via `POST /api/v1/products/{productId}/variants/{variantId}/images` and returned in
+the grid and PDP responses. See `docs/41-Variant-Grid-and-Selection-UI-Guide.md` §7 for the
+frontend fallback chain.
 
 **3. No completeness check.** Nothing requires a variant to specify a value for every axis the
 product declares. A product with `{Colour, Size}` can hold a variant `{Red}` with no size. Two
@@ -534,3 +535,13 @@ price, and will track future base-price edits, unlike the overridden variants.
 | Stock → availability bands | `src\KromicCommerce.Application\Services\StorefrontStockService.cs` |
 | Inventory row-kind trigger | `src\KromicCommerce.Infrastructure\Persistence\Migrations\20261002130000_InventoryRowKindConsistency.cs` |
 | Selector contract (original) | `docs\Inventory-Frontend-Integration-Guide.md:399-411` |
+| Variant grid endpoint | `src\KromicCommerce.Application\Features\Storefront\Products\GetStorefrontVariantGrid\GetStorefrontVariantGridHandler.cs` |
+| Variant image CRUD | `src\KromicCommerce.Api\Controllers\V1\VariantImagesController.cs` |
+
+---
+
+## See also
+
+- **`docs/41-Variant-Grid-and-Selection-UI-Guide.md`** — the source of truth for frontend
+  implementation: variant grid rendering, PDP selector state machine, add-to-cart rules, admin
+  variant image management, complete TypeScript types, and frontend checklist.

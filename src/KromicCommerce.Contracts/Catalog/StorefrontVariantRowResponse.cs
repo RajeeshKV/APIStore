@@ -1,0 +1,45 @@
+namespace KromicCommerce.Contracts.Catalog;
+
+/// <summary>
+/// One row in the variant-level product grid. Each active variant of an active product
+/// is returned as a separate card, so "Blue-256GB" and "Red-256GB" appear as two distinct
+/// rows. Products without variants appear once with VariantId null.
+/// </summary>
+public sealed record StorefrontVariantRowResponse(
+    Guid Id,
+
+    /// <summary>Variant id. Null for products that have no variants — the row represents the product itself.</summary>
+    Guid? VariantId,
+
+    Guid ProductId,
+    string Slug,         // Product slug — link to PDP
+    string Name,         // Product name
+    string? Sku,
+    decimal EffectivePrice,
+    string Currency,
+
+    string? PrimaryImageUrl,
+
+    StockAvailability StockAvailability,
+    bool CanPurchase,
+
+    Guid? CategoryId,
+    string? CategoryName,
+    string? CategorySlug,
+
+    Guid? BrandId,
+    string? BrandName,
+    string? BrandSlug,
+
+    bool IsFeatured,
+    decimal RatingAverage,
+    int RatingCount,
+
+    /// <summary>
+    /// Variant-level images ordered by SortOrder. Empty when none exist; the product-level
+    /// image gallery on the PDP is the fallback.
+    /// </summary>
+    IReadOnlyList<StorefrontImageResponse>? Images = null)
+{
+    public bool IsOutOfStock => StockAvailability == StockAvailability.OutOfStock;
+}

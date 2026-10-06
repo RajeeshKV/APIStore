@@ -3,6 +3,7 @@ using KromicCommerce.Application.Features.Storefront.Products.GetFeaturedProduct
 using KromicCommerce.Application.Features.Storefront.Products.GetRelatedProducts;
 using KromicCommerce.Application.Features.Storefront.Products.GetStorefrontProductBySlug;
 using KromicCommerce.Application.Features.Storefront.Products.GetStorefrontProducts;
+using KromicCommerce.Application.Features.Storefront.Products.GetStorefrontVariantGrid;
 using KromicCommerce.Contracts.Catalog;
 using KromicCommerce.Contracts.Common;
 
@@ -102,6 +103,25 @@ public sealed class StorefrontProductsController(IMediator mediator) : Controlle
     {
         var result = await mediator.Send(
             new GetFeaturedProductsQuery(limit), cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
+    }
+
+    /// <summary>
+    /// Variant-level product grid. Returns one row per active variant so each combination
+    /// (e.g. "Blue-256GB", "Red-256GB") appears as a separate card. Products without variants
+    /// appear once. Supports the same query string as the product list: search, category/brand
+    /// slug filters, attribute filters, price range, in-stock toggle, sort, and pagination.
+    /// </summary>
+    [HttpGet("variants")]
+    [ProducesResponseType(typeof(PagedResponse<StorefrontVariantRowResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetVariantGrid(
+        [FromQuery] StorefrontProductQueryRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await mediator.Send(
+            new GetStorefrontVariantGridQuery(request), cancellationToken);
 
         return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }

@@ -14,6 +14,13 @@ internal sealed class ProductImageConfiguration : IEntityTypeConfiguration<Produ
 
         builder.HasIndex(i => new { i.ProductId, i.SortOrder }).HasDatabaseName("ix_product_images_product_sort");
 
+        // Variant-scoped images are unique per (Product, Variant, SortOrder) so a variant's
+        // gallery cannot accumulate duplicate positions. Product-level rows are excluded by the
+        // filter: a product's own gallery is not constrained this way.
+        builder.HasIndex(i => new { i.ProductId, i.VariantId, i.SortOrder })
+            .HasDatabaseName("ix_product_images_variant_sort")
+            .HasFilter("\"VariantId\" IS NOT NULL");
+
         // Owned MediaAsset — flattened columns
         builder.OwnsOne(i => i.Asset, a =>
         {

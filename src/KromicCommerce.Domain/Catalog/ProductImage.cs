@@ -12,10 +12,12 @@ public sealed class ProductImage : Entity
         Guid productId,
         MediaAsset asset,
         int sortOrder,
-        bool isPrimary)
+        bool isPrimary,
+        Guid? variantId = null)
         => new()
         {
             ProductId = productId,
+            VariantId = variantId,
             Asset = asset,
             SortOrder = sortOrder,
             IsPrimary = isPrimary,
@@ -23,6 +25,13 @@ public sealed class ProductImage : Entity
         };
 
     public Guid ProductId { get; private set; }
+
+    /// <summary>
+    /// Optional variant this image belongs to. Null means the image is a product-level asset
+    /// (the general gallery). When set, the image is part of that variant's gallery.
+    /// </summary>
+    public Guid? VariantId { get; private set; }
+
     public MediaAsset Asset { get; private set; } = null!;
     public int SortOrder { get; private set; }
     public bool IsPrimary { get; private set; }
@@ -30,6 +39,8 @@ public sealed class ProductImage : Entity
 
     // Navigation
     public Product Product { get; private set; } = null!;
+    /// <summary>Null for product-level images.</summary>
+    public ProductVariant? Variant { get; private set; } = null!;
 
     // -----------------------------------------------------------------------
     // Behaviour

@@ -34,7 +34,13 @@ public sealed record StorefrontVariantResponse(
     /// <see cref="CanPurchase"/> is false for an inactive variant regardless of stock, so a
     /// client can disable the option without re-deriving the rule.
     /// </summary>
-    IReadOnlyList<VariantAttributeValueResponse>? Attributes = null)
+    IReadOnlyList<VariantAttributeValueResponse>? Attributes = null,
+
+    /// <summary>
+    /// Images uploaded specifically for this variant. Empty when none exist — the product's
+    /// own <see cref="StorefrontProductResponse.Images"/> remains the authoritative gallery.
+    /// </summary>
+    IReadOnlyList<StorefrontImageResponse>? Images = null)
 {
     /// <summary>
     /// DERIVED from <see cref="StockAvailability"/> — never stored or set independently.

@@ -51,7 +51,7 @@ internal sealed class GetStorefrontProductBySlugHandler(
             .Include(p => p.Brand)
             .Include(p => p.Images)
             .Include(p => p.Attributes).ThenInclude(a => a.Values)
-            .Include(p => p.Variants)
+            .Include(p => p.Variants).ThenInclude(v => v.Images)
             .FirstOrDefaultAsync(
                 p => p.Slug == slug && p.Status == ProductStatus.Active,
                 cancellationToken);
@@ -132,10 +132,16 @@ internal sealed class GetStorefrontProductBySlugHandler(
                         .Select(id => variantAttributeMap[id])
                         .ToList();
 
+                var variantImages = v.Images
+                    .OrderBy(i => i.SortOrder)
+                    .Select(i => new StorefrontImageResponse(
+                        i.Id, i.Asset.SecureUrl, i.Asset.AltText, i.SortOrder, i.IsPrimary))
+                    .ToList();
+
                 return new StorefrontVariantResponse(
                     v.Id, v.Sku, effectivePrice,
                     v.SortOrder, v.IsActive, v.AttributeValueIds,
-                    vStock.Availability, canPurchase, attributes);
+                    vStock.Availability, canPurchase, attributes, variantImages);
             })
             .ToList();
 

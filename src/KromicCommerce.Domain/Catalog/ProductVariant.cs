@@ -70,6 +70,9 @@ public sealed class ProductVariant : AuditableEntity
 
     // Navigation
     public Product Product { get; private set; } = null!;
+    /// <summary>Images uploaded for this variant specifically. Empty when none exist.</summary>
+    public IReadOnlyList<ProductImage> Images => _images.AsReadOnly();
+    private readonly List<ProductImage> _images = [];
 
     // -----------------------------------------------------------------------
     // Behaviour
