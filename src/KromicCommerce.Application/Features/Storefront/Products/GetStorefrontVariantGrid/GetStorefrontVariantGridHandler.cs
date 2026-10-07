@@ -154,15 +154,10 @@ internal sealed class GetStorefrontVariantGridHandler(
                 ProductPrice = v.Product.Price,
                 ProductCompareAtPrice = v.Product.CompareAtPrice,
                 PrimaryImageUrl = db.ProductImages
-                    .Where(i => i.ProductId == v.ProductId && i.VariantId == null)
+                    .Where(i => i.ProductId == v.ProductId && i.VariantId == v.Id)
                     .OrderBy(i => i.SortOrder)
                     .Select(i => i.Asset.SecureUrl)
-                    .FirstOrDefault()
-                    ?? db.ProductImages
-                        .Where(i => i.ProductId == v.ProductId)
-                        .OrderBy(i => i.SortOrder)
-                        .Select(i => i.Asset.SecureUrl)
-                        .FirstOrDefault(),
+                    .FirstOrDefault(),
                 CategoryId = v.Product.CategoryId,
                 CategoryName = v.Product.Category != null ? v.Product.Category.Name : null,
                 CategorySlug = v.Product.Category != null ? v.Product.Category.Slug : null,

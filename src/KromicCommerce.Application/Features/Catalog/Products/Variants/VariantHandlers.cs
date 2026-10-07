@@ -56,6 +56,24 @@ internal sealed class CreateVariantHandler(IApplicationDbContext db, ICatalogCac
         var inventoryItem = InventoryItem.Create(cmd.ProductId, variant.Id, onHand: 0);
         db.InventoryItems.Add(inventoryItem);
 
+        // Duplicate product-level images to this variant so every combination has the same gallery
+        // as the product. The UI hides product-level images when variants exist, so the variant
+        // must carry its own copies. Sort order is preserved from the product image.
+        var productImages = await db.ProductImages
+            .Where(i => i.ProductId == cmd.ProductId && i.VariantId == null)
+            .OrderBy(i => i.SortOrder)
+            .ToListAsync(ct);
+
+        foreach (var productImage in productImages)
+        {
+            db.ProductImages.Add(ProductImage.Create(
+                cmd.ProductId,
+                productImage.Asset,  // same MediaAsset reference
+                productImage.SortOrder,
+                productImage.IsPrimary,
+                variant.Id));        // scoped to the new variant
+        }
+
         await db.SaveChangesAsync(ct);
 
         var attributes = await VariantAttributeResolution.ResolveAsync(db, variant, ct);

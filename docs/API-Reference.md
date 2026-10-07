@@ -423,7 +423,7 @@ GET /api/v1/store/products/variants?search=t-shirt&categorySlug=shirts&inStockOn
       "sku": "TSH-RED-S",
       "effectivePrice": 999.00,
       "currency": "INR",
-      "primaryImageUrl": "https://…",    // product primary image (variant image if configured)
+      "primaryImageUrl": "https://…",    // variant-level image only; no product fallback
       "stockAvailability": "InStock",    // InStock | LowStock | OutOfStock
       "canPurchase": true,
       "isOutOfStock": false,
@@ -445,6 +445,18 @@ GET /api/v1/store/products/variants?search=t-shirt&categorySlug=shirts&inStockOn
   "totalPages": 3, "hasNextPage": true, "hasPreviousPage": false
 }
 ```
+
+### Image behavior on the variant grid
+
+Variant rows (`variantId` set) return **only variant-level images**. `primaryImageUrl` and
+`images[]` come from `product_images` rows where `VariantId` matches the variant. There is no
+fallback to product-level images.
+
+Simple-product rows (`variantId` null) return product-level images as before.
+
+> **Why:** when a product has variants, the UI hides the product-level image section. Each variant
+> must carry its own gallery. Variant images are automatically duplicated from the product gallery
+> at variant creation time, so every new variant starts with the same set of images the product had.
 
 ### Stock semantics
 
