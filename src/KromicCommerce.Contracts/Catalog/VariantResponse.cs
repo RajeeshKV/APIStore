@@ -22,7 +22,13 @@ public sealed record VariantResponse(
     /// is retained unchanged for backward compatibility. Values that no longer exist are omitted,
     /// so a variant whose value was deleted may return fewer entries than it references.
     /// </summary>
-    IReadOnlyList<VariantAttributeValueResponse>? Attributes = null)
+    IReadOnlyList<VariantAttributeValueResponse>? Attributes = null,
+
+    /// <summary>
+    /// Images uploaded specifically for this variant. Empty when none exist — the product's
+    /// own gallery remains the fallback.
+    /// </summary>
+    IReadOnlyList<ProductImageDto>? Images = null)
 {
     /// <summary>
     /// DERIVED from <see cref="AvailableStock"/> — never stored or set independently, so the

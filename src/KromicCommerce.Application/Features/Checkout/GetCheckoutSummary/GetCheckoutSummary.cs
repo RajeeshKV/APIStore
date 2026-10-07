@@ -90,7 +90,8 @@ internal static class CheckoutSummaryMapper
         i.ProductName, i.ProductSlug,
         i.VariantDescription, i.Sku,
         i.UnitPrice, i.Quantity, i.LineTotal,
-        i.StockAvailability, i.CanPurchase, i.PrimaryImageUrl);
+        i.StockAvailability, i.CanPurchase, i.PrimaryImageUrl,
+        VariantAttributes: i.VariantAttributes);
 
     /// <summary>
     /// Human-readable text for a blocking reason code. Kept beside the codes so the copy and

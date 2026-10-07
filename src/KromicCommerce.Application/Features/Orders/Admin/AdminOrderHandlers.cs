@@ -1,4 +1,6 @@
+using KromicCommerce.Application.Features.Catalog.Products.Variants;
 using KromicCommerce.Application.Features.Orders.GetMyOrders;
+using KromicCommerce.Contracts.Catalog;
 
 namespace KromicCommerce.Application.Features.Orders.Admin;
 
@@ -69,6 +71,10 @@ internal sealed class GetAdminOrderByIdHandler(IApplicationDbContext db)
             return Result.Failure<OrderResponse>(Error.NotFound("ORDER_NOT_FOUND", "Order not found."));
 
         var imageMap = await GetMyOrderByIdHandler.LoadImageMapAsync(db, order.Items, ct);
-        return Result.Success(GetMyOrderByIdHandler.MapToResponse(order, imageMap));
+        
+        // Resolve variant attributes for order items that have variants
+        var variantAttributeMap = await GetMyOrderByIdHandler.BuildVariantAttributeMapAsync(db, order.Items, ct);
+        
+        return Result.Success(GetMyOrderByIdHandler.MapToResponse(order, imageMap, variantAttributeMap));
     }
 }

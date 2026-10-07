@@ -2,11 +2,13 @@ using KromicCommerce.Application.Abstractions.Catalog;
 using KromicCommerce.Application.Abstractions.Commerce;
 using KromicCommerce.Application.Abstractions.Payments;
 using KromicCommerce.Application.Abstractions.Store;
+using KromicCommerce.Application.Features.Catalog.Products.Variants;
 using KromicCommerce.Domain.Cart;
 using KromicCommerce.Domain.Catalog;
 using KromicCommerce.Domain.Orders;
 using KromicCommerce.Domain.Promotions;
 using KromicCommerce.Domain.Store;
+using KromicCommerce.Contracts.Catalog;
 
 namespace KromicCommerce.Application.Services;
 
@@ -75,6 +77,12 @@ internal sealed class CheckoutSummaryService(
                 .Where(v => variantIds.Contains(v.Id)).ToListAsync(cancellationToken)
             : [];
 
+        // Pre-resolve variant attributes for all variants in the cart
+        var variantAttributeMap = variantIds.Count > 0
+            ? await VariantAttributeHelper.ResolveAsync(
+                db, variants.SelectMany(v => v.ParsedAttributeValueIds).Distinct().ToList(), cancellationToken)
+            : new Dictionary<Guid, VariantAttributeValueResponse>();
+
         var inventoryItems = await db.InventoryItems.AsNoTracking()
             .Where(inv => productIds.Contains(inv.ProductId))
             .ToListAsync(cancellationToken);
@@ -125,6 +133,16 @@ internal sealed class CheckoutSummaryService(
                 .FirstOrDefault(i => i.IsPrimary)?.Asset.SecureUrl
                 ?? product.Images.OrderBy(i => i.SortOrder).FirstOrDefault()?.Asset.SecureUrl;
 
+            // Resolve variant attributes for display
+            IReadOnlyList<VariantAttributeValueResponse>? variantAttributes = null;
+            if (variant is not null && variant.ParsedAttributeValueIds.Count > 0)
+            {
+                variantAttributes = variant.ParsedAttributeValueIds
+                    .Where(variantAttributeMap.ContainsKey)
+                    .Select(id => variantAttributeMap[id])
+                    .ToList();
+            }
+
             items.Add(new CheckoutSummaryItem(
                 cartItem.Id,
                 product.Id,
@@ -138,7 +156,8 @@ internal sealed class CheckoutSummaryService(
                 lineTotal,
                 stock.Availability,
                 stock.CanPurchase,
-                primaryImageUrl));
+                primaryImageUrl,
+                VariantAttributes: variantAttributes));
 
             cartItemContexts.Add(new CartItemContext(product.Id, product.CategoryId, lineTotal));
         }

@@ -25,7 +25,13 @@ internal static class ProductMapper
             p.Variants.OrderBy(v => v.SortOrder).ThenBy(v => v.CreatedAtUtc)
                 .Select(v => new VariantResponse(
                     v.Id, v.Sku, v.PriceOverride, v.SortOrder, v.IsActive, v.AttributeValueIds,
-                    null)).ToList(),
+                    null,
+                    Attributes: null,
+                    Images: v.Images.OrderBy(i => i.SortOrder)
+                        .Select(i => new ProductImageDto(i.Id,
+                            new MediaAssetDto(i.Asset.PublicId, i.Asset.SecureUrl, i.Asset.Format,
+                                i.Asset.Width, i.Asset.Height, i.Asset.AltText),
+                            i.SortOrder, i.IsPrimary)).ToList())).ToList(),
             // Denormalised on the product row, so the admin detail view needs no aggregate query.
             p.RatingAverage, p.RatingCount,
             p.CreatedAtUtc, p.UpdatedAtUtc);

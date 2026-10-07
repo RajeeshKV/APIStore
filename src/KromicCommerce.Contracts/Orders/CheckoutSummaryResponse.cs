@@ -110,7 +110,13 @@ public sealed record CheckoutSummaryItemResponse(
     decimal LineTotal,
     StockAvailability StockAvailability,
     bool CanPurchase,
-    string? PrimaryImageUrl);
+    string? PrimaryImageUrl,
+
+    /// <summary>
+    /// Resolved variant attributes for display (e.g., Color: Orange, Storage: 256GB).
+    /// Empty when the product has no variants or the variant has no attribute values.
+    /// </summary>
+    IReadOnlyList<VariantAttributeValueResponse>? VariantAttributes = null);
 
 /// <summary>Availability of a single payment method for the current cart and store config.</summary>
 public sealed record CheckoutPaymentMethodResponse(

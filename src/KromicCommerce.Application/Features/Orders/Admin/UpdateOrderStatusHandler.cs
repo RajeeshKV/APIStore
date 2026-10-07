@@ -1,6 +1,8 @@
 using System.Text.Json;
+using KromicCommerce.Application.Features.Catalog.Products.Variants;
 using KromicCommerce.Application.Features.Orders.GetMyOrders;
 using KromicCommerce.Application.Services;
+using KromicCommerce.Contracts.Catalog;
 using KromicCommerce.Contracts.Orders;
 
 namespace KromicCommerce.Application.Features.Orders.Admin;
@@ -203,6 +205,10 @@ internal sealed class UpdateOrderStatusHandler(
     private async Task<OrderResponse> BuildResponseAsync(Order order, CancellationToken ct)
     {
         var imageMap = await GetMyOrderByIdHandler.LoadImageMapAsync(db, order.Items, ct);
-        return GetMyOrderByIdHandler.MapToResponse(order, imageMap);
+        
+        // Resolve variant attributes for order items that have variants
+        var variantAttributeMap = await GetMyOrderByIdHandler.BuildVariantAttributeMapAsync(db, order.Items, ct);
+        
+        return GetMyOrderByIdHandler.MapToResponse(order, imageMap, variantAttributeMap);
     }
 }

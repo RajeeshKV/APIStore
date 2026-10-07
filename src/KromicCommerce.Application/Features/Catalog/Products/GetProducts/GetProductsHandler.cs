@@ -170,7 +170,7 @@ internal sealed class GetProductByIdHandler(IApplicationDbContext db)
         var p = await db.Products.AsNoTracking()
             .Include(x => x.Category).Include(x => x.Brand)
             .Include(x => x.Images).Include(x => x.Attributes).ThenInclude(a => a.Values)
-            .Include(x => x.Variants)
+            .Include(x => x.Variants).ThenInclude(v => v.Images)
             .FirstOrDefaultAsync(x => x.Id == query.Id, cancellationToken);
 
         return p is null

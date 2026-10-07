@@ -18,4 +18,10 @@ public sealed record CartItemResponse(
     string Currency,
     StockAvailability StockAvailability,
     bool CanPurchase,
-    string? PrimaryImageUrl);
+    string? PrimaryImageUrl,
+
+    /// <summary>
+    /// Resolved variant attributes for display (e.g., Color: Orange, Storage: 256GB).
+    /// Empty when the product has no variants or the variant has no attribute values.
+    /// </summary>
+    IReadOnlyList<VariantAttributeValueResponse>? VariantAttributes = null);

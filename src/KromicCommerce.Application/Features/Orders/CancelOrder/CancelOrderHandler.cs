@@ -1,4 +1,6 @@
+using KromicCommerce.Application.Features.Catalog.Products.Variants;
 using KromicCommerce.Application.Features.Orders.GetMyOrders;
+using KromicCommerce.Contracts.Catalog;
 using KromicCommerce.Contracts.Orders;
 
 namespace KromicCommerce.Application.Features.Orders.CancelOrder;
@@ -51,6 +53,10 @@ internal sealed class CancelOrderHandler(
         }
 
         var imageMap = await GetMyOrderByIdHandler.LoadImageMapAsync(db, order.Items, ct);
-        return Result.Success(GetMyOrderByIdHandler.MapToResponse(order, imageMap));
+        
+        // Resolve variant attributes for order items that have variants
+        var variantAttributeMap = await GetMyOrderByIdHandler.BuildVariantAttributeMapAsync(db, order.Items, ct);
+        
+        return Result.Success(GetMyOrderByIdHandler.MapToResponse(order, imageMap, variantAttributeMap));
     }
 }

@@ -674,20 +674,26 @@ POST /api/v1/cart/items
 
 ## 8. Admin Order Management
 
-### 8.1 Order item response (no API changes needed)
+### 8.1 Order item response (now includes variant attributes and variant images)
 
 ```jsonc
 {
   "orderItems": [
     {
+      "id": "order-item-001",
       "productId": "P1",
       "variantId": "var-001",
-      "sku": "TSH-RED-S",
-      "variantDescription": "Red / Small",
       "productName": "Classic T-Shirt",
+      "variantDescription": "Red / Small",
+      "sku": "TSH-RED-S",
       "unitPrice": 999.00,
       "quantity": 1,
-      "lineTotal": 999.00
+      "lineTotal": 999.00,
+      "primaryImageUrl": "https://...",  // variant-level image if variant exists, else product-level
+      "variantAttributes": [
+        { "attributeValueId": "attr-val-1", "attributeId": "attr-1", "attributeName": "Color", "value": "Red" },
+        { "attributeValueId": "attr-val-2", "attributeId": "attr-2", "attributeName": "Size", "value": "Small" }
+      ]
     }
   ]
 }
@@ -695,12 +701,110 @@ POST /api/v1/cart/items
 
 Show `variantDescription` as the line title. If `variantId` is null, show only product name and SKU.
 
+### 8.2 Cart item response (includes variant attributes)
+
+```jsonc
+{
+  "items": [
+    {
+      "id": "cart-item-001",
+      "productId": "P1",
+      "productName": "Classic T-Shirt",
+      "productSlug": "classic-t-shirt",
+      "variantId": "var-001",
+      "variantDescription": "Red / Small",
+      "sku": "TSH-RED-S",
+      "unitPrice": 999.00,
+      "quantity": 1,
+      "lineTotal": 999.00,
+      "currency": "INR",
+      "stockAvailability": "InStock",
+      "canPurchase": true,
+      "primaryImageUrl": "https://...",  // variant-level image if variant exists, else product-level
+      "variantAttributes": [
+        { "attributeValueId": "attr-val-1", "attributeId": "attr-1", "attributeName": "Color", "value": "Red" },
+        { "attributeValueId": "attr-val-2", "attributeId": "attr-2", "attributeName": "Size", "value": "Small" }
+      ]
+    }
+  ]
+}
+```
+
+### 8.3 Checkout summary item response (includes variant attributes)
+
+```jsonc
+{
+  "items": [
+    {
+      "cartItemId": "cart-item-001",
+      "productId": "P1",
+      "variantId": "var-001",
+      "productName": "Classic T-Shirt",
+      "productSlug": "classic-t-shirt",
+      "variantDescription": "Red / Small",
+      "sku": "TSH-RED-S",
+      "unitPrice": 999.00,
+      "quantity": 1,
+      "lineTotal": 999.00,
+      "stockAvailability": "InStock",
+      "canPurchase": true,
+      "primaryImageUrl": "https://...",  // variant-level image if variant exists, else product-level
+      "variantAttributes": [
+        { "attributeValueId": "attr-val-1", "attributeId": "attr-1", "attributeName": "Color", "value": "Red" },
+        { "attributeValueId": "attr-val-2", "attributeId": "attr-2", "attributeName": "Size", "value": "Small" }
+      ]
+    }
+  ]
+}
+```
+
+### 8.4 Admin variant detail response (includes variant images)
+
+```jsonc
+GET /api/v1/products/{productId}/variants/{variantId}
+
+{
+  "id": "var-001",
+  "sku": "TSH-RED-S",
+  "priceOverride": 999.00,
+  "sortOrder": 0,
+  "isActive": true,
+  "attributeValueIds": "attr-val-1,attr-val-2",
+  "availableStock": 25,
+  "attributes": [
+    { "attributeValueId": "attr-val-1", "attributeId": "attr-1", "attributeName": "Color", "value": "Red" },
+    { "attributeValueId": "attr-val-2", "attributeId": "attr-2", "attributeName": "Size", "value": "Small" }
+  ],
+  "images": [
+    { "id": "img-1", "asset": { "publicId": "...", "secureUrl": "https://...", "format": "jpg", "width": 800, "height": 800, "altText": "Red Small" }, "sortOrder": 0, "isPrimary": true },
+    { "id": "img-2", "asset": { "publicId": "...", "secureUrl": "https://...", "format": "jpg", "width": 800, "height": 800, "altText": "Red Small Back" }, "sortOrder": 1, "isPrimary": false }
+  ]
+}
+```
+
+### 8.5 Admin variant images endpoints
+
+| Method | Route | Use |
+|---|---|---|
+| GET | `/api/v1/products/{productId}/variants/{variantId}/images` | List variant images |
+| POST | `/api/v1/products/{productId}/variants/{variantId}/images` | Upload variant images |
+| PUT | `/api/v1/products/{productId}/variants/{variantId}/images/reorder` | Reorder variant images |
+| PUT | `/api/v1/products/{productId}/variants/{variantId}/images/{imageId}/set-primary` | Set primary variant image |
+| DELETE | `/api/v1/products/{productId}/variants/{variantId}/images/{imageId}` | Delete variant image |
+
 ---
 
 ## 9. Complete TypeScript Types
 
 ```ts
 type StockAvailability = 'InStock' | 'LowStock' | 'OutOfStock';
+
+type VariantAttribute = {
+  attributeValueId: string;
+  attributeId: string;
+  attributeName: string;
+  value: string;
+};
 
 type GridImage = {
   id: string;
@@ -745,6 +849,55 @@ type PagedResponse<T> = {
   hasPreviousPage: boolean;
 };
 
+type CartItemResponse = {
+  id: string;
+  productId: string;
+  productName: string;
+  productSlug: string;
+  variantId: string | null;
+  variantDescription: string | null;
+  sku: string | null;
+  unitPrice: number;
+  quantity: number;
+  lineTotal: number;
+  currency: string;
+  stockAvailability: StockAvailability;
+  canPurchase: boolean;
+  primaryImageUrl: string | null;
+  variantAttributes: VariantAttribute[];
+};
+
+type CheckoutSummaryItemResponse = {
+  cartItemId: string;
+  productId: string;
+  variantId: string | null;
+  productName: string;
+  productSlug: string;
+  variantDescription: string | null;
+  sku: string | null;
+  unitPrice: number;
+  quantity: number;
+  lineTotal: number;
+  stockAvailability: StockAvailability;
+  canPurchase: boolean;
+  primaryImageUrl: string | null;
+  variantAttributes: VariantAttribute[];
+};
+
+type OrderItemResponse = {
+  id: string;
+  productId: string;
+  variantId: string | null;
+  productName: string;
+  variantDescription: string | null;
+  sku: string | null;
+  unitPrice: number;
+  quantity: number;
+  lineTotal: number;
+  primaryImageUrl: string | null;
+  variantAttributes: VariantAttribute[];
+};
+
 type StorefrontProductResponse = {
   id: string;
   name: string;
@@ -773,14 +926,21 @@ type StorefrontProductResponse = {
     attributeValueIds: string | null;
     stockAvailability: StockAvailability;
     canPurchase: boolean;
-    attributes: Array<{
-      attributeValueId: string;
-      attributeId: string;
-      attributeName: string;
-      value: string;
-    }>;
+    attributes: VariantAttribute[];
     images: GridImage[];
   }>;
+};
+
+type AdminVariantResponse = {
+  id: string;
+  sku: string | null;
+  priceOverride: number | null;
+  sortOrder: number;
+  isActive: boolean;
+  attributeValueIds: string | null;
+  availableStock: number | null;
+  attributes: VariantAttribute[];
+  images: GridImage[];
 };
 ```
 
@@ -805,6 +965,12 @@ type StorefrontProductResponse = {
 - [ ] PDP uses `isValueAvailable()` for disabled swatches
 - [ ] Add-to-cart sends `variantId` (null for simple products)
 - [ ] Admin order lines show `variantDescription` (or product name if null)
+- [ ] Cart items display `variantAttributes` (Color, Size, etc.)
+- [ ] Checkout summary items display `variantAttributes`
+- [ ] Order items display `variantAttributes`
+- [ ] Admin variant detail loads variant images via GET `/variants/{variantId}/images`
+- [ ] Variant image upload uses POST `/variants/{variantId}/images`
+- [ ] Variant images use variant-specific endpoints (not product-level)
 - [ ] No unit stock counts in storefront
 - [ ] No client-side price calculation — always use `effectivePrice`
 

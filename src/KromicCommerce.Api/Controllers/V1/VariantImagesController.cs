@@ -29,6 +29,21 @@ public sealed class VariantImagesController(
     private const int MaxFilesPerRequest = 10;
 
     /// <summary>
+    /// Get all images for a variant.
+    /// </summary>
+    [HttpGet]
+    [ProducesResponseType(typeof(IReadOnlyList<ProductImageDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Get(
+        Guid productId,
+        Guid variantId,
+        CancellationToken ct)
+    {
+        var result = await mediator.Send(new GetVariantImagesQuery(productId, variantId), ct);
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
+    }
+
+    /// <summary>
     /// Upload one or more images and attach them to a variant.
     /// Files are uploaded to Cloudinary in order; the first image for the variant
     /// automatically becomes its primary. Subsequent images are appended.

@@ -1,7 +1,40 @@
 using KromicCommerce.Application.Abstractions.Catalog;
 using KromicCommerce.Application.Abstractions.Media;
+using KromicCommerce.Contracts.Catalog;
 
 namespace KromicCommerce.Application.Features.Catalog.Products.VariantImages;
+
+internal sealed class GetVariantImagesHandler(IApplicationDbContext db)
+    : IQueryHandler<GetVariantImagesQuery, IReadOnlyList<ProductImageDto>>
+{
+    public async Task<Result<IReadOnlyList<ProductImageDto>>> Handle(
+        GetVariantImagesQuery query, CancellationToken cancellationToken)
+    {
+        var variant = await db.ProductVariants
+            .Where(v => v.Id == query.VariantId && v.ProductId == query.ProductId)
+            .Select(v => new { v.Id })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (variant is null)
+            return Result.Failure<IReadOnlyList<ProductImageDto>>(
+                Error.NotFound("VARIANT_NOT_FOUND", "Variant not found."));
+
+        var images = await db.ProductImages
+            .AsNoTracking()
+            .Where(i => i.ProductId == query.ProductId && i.VariantId == query.VariantId)
+            .OrderBy(i => i.SortOrder)
+            .ToListAsync(cancellationToken);
+
+        var result = images
+            .Select(i => new ProductImageDto(i.Id,
+                new MediaAssetDto(i.Asset.PublicId, i.Asset.SecureUrl, i.Asset.Format,
+                    i.Asset.Width, i.Asset.Height, i.Asset.AltText),
+                i.SortOrder, i.IsPrimary))
+            .ToList();
+
+        return Result.Success<IReadOnlyList<ProductImageDto>>(result);
+    }
+}
 
 internal sealed class AddVariantImageHandler(
     IApplicationDbContext db,

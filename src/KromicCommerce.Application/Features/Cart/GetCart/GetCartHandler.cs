@@ -1,3 +1,6 @@
+using KromicCommerce.Application.Features.Catalog.Products.Variants;
+using KromicCommerce.Contracts.Catalog;
+
 namespace KromicCommerce.Application.Features.Cart.GetCart;
 
 internal sealed class GetCartHandler(
@@ -51,6 +54,12 @@ internal sealed class GetCartHandler(
                 .Where(v => variantIds.Contains(v.Id)).ToListAsync(cancellationToken)
             : [];
 
+        // Pre-resolve variant attributes for all variants in the cart
+        var variantAttributeMap = variantIds.Count > 0
+            ? await VariantAttributeHelper.ResolveAsync(
+                db, variants.SelectMany(v => v.ParsedAttributeValueIds).Distinct().ToList(), cancellationToken)
+            : new Dictionary<Guid, VariantAttributeValueResponse>();
+
         var inventoryItems = await db.InventoryItems.AsNoTracking()
             .Where(inv => productIds.Contains(inv.ProductId))
             .ToListAsync(cancellationToken);
@@ -85,13 +94,24 @@ internal sealed class GetCartHandler(
                 ? (variant.Sku is not null ? $"SKU: {variant.Sku}" : null)
                 : null;
 
+            // Resolve variant attributes for display
+            IReadOnlyList<VariantAttributeValueResponse>? variantAttributes = null;
+            if (variant is not null && variant.ParsedAttributeValueIds.Count > 0)
+            {
+                variantAttributes = variant.ParsedAttributeValueIds
+                    .Where(variantAttributeMap.ContainsKey)
+                    .Select(id => variantAttributeMap[id])
+                    .ToList();
+            }
+
             items.Add(new CartItemResponse(
                 cartItem.Id,
                 product.Id, product.Name, product.Slug,
                 variant?.Id, variantDesc, variant?.Sku ?? product.Sku,
                 unitPrice, cartItem.Quantity, lineTotal, currency,
                 stockResp.Availability, stockResp.CanPurchase,
-                primaryImageUrl));
+                primaryImageUrl,
+                VariantAttributes: variantAttributes));
         }
 
         return Result.Success(new CartResponse(

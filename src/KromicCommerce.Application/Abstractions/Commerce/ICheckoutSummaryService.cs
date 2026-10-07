@@ -1,5 +1,7 @@
 using KromicCommerce.Domain.Orders;
 
+using KromicCommerce.Contracts.Catalog;
+
 namespace KromicCommerce.Application.Abstractions.Commerce;
 
 /// <summary>
@@ -50,7 +52,13 @@ public sealed record CheckoutSummaryItem(
     decimal LineTotal,
     StockAvailability StockAvailability,
     bool CanPurchase,
-    string? PrimaryImageUrl);
+    string? PrimaryImageUrl,
+
+    /// <summary>
+    /// Resolved variant attributes for display (e.g., Color: Orange, Storage: 256GB).
+    /// Empty when the product has no variants or the variant has no attribute values.
+    /// </summary>
+    IReadOnlyList<VariantAttributeValueResponse>? VariantAttributes = null);
 
 /// <summary>Whether a payment method can be offered for the current cart and store config.</summary>
 public sealed record CheckoutPaymentMethodAvailability(
