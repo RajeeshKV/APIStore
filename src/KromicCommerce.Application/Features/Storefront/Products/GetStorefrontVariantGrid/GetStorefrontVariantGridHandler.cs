@@ -1,4 +1,5 @@
 using KromicCommerce.Application.Features.Catalog.Products.Variants;
+using KromicCommerce.Contracts.Catalog;
 
 namespace KromicCommerce.Application.Features.Storefront.Products.GetStorefrontVariantGrid;
 
@@ -134,7 +135,7 @@ internal sealed class GetStorefrontVariantGridHandler(
                 : variantBase.OrderBy(v => v.CreatedAtUtc).ThenBy(v => v.Id)
         };
 
-        // -----------------------------------------------------------------------
+// -----------------------------------------------------------------------
         // Page: load variant rows with product, inventory and images
         // -----------------------------------------------------------------------
         var variantRows = await variantBase
@@ -183,9 +184,23 @@ internal sealed class GetStorefrontVariantGridHandler(
                     .OrderBy(i => i.SortOrder)
                     .Select(i => new StorefrontImageResponse(
                         i.Id, i.Asset.SecureUrl, i.Asset.AltText, i.SortOrder, i.IsPrimary))
-                    .ToList()
+                    .ToList(),
+                VariantAttributeValueIds = v.AttributeValueIds
             })
-            .ToListAsync(cancellationToken);
+.ToListAsync(cancellationToken);
+
+        // Resolve variant attributes for all variants in the grid
+        var variantAttributeMap = variantRows.Count > 0
+            ? await VariantAttributeHelper.ResolveAsync(
+                db, variantRows
+                    .Where(v => !string.IsNullOrWhiteSpace(v.VariantAttributeValueIds))
+                    .SelectMany(v => v.VariantAttributeValueIds!.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                    .Select(s => s.Trim())
+                    .Where(s => Guid.TryParse(s, out _))
+                    .Select(Guid.Parse)
+                    .Distinct()
+                    .ToList(), cancellationToken)
+            : new Dictionary<Guid, VariantAttributeValueResponse>();
 
         // -----------------------------------------------------------------------
         // Products without variants: one fallback row each so the grid never drops them.
@@ -258,11 +273,12 @@ internal sealed class GetStorefrontVariantGridHandler(
 
                 return new StorefrontVariantRowResponse(
                     v.Id, v.VariantId, v.Id, v.Slug, v.Name, v.Sku,
-                    effectivePrice, currency, v.PrimaryImageUrl,
+                    effectivePrice, v.ProductCompareAtPrice, currency, v.PrimaryImageUrl,
                     availability, v.IsActive && !isOut,
                     v.CategoryId, v.CategoryName, v.CategorySlug,
                     v.BrandId, v.BrandName, v.BrandSlug,
                     v.IsFeatured, v.RatingAverage, v.RatingCount,
+                    VariantAttributes: null,
                     v.VariantImages);
             }).ToList();
 
@@ -276,13 +292,34 @@ internal sealed class GetStorefrontVariantGridHandler(
                     ? StockAvailability.OutOfStock
                     : (isLow ? StockAvailability.LowStock : StockAvailability.InStock);
 
+                // Resolve variant attributes
+                IReadOnlyList<VariantAttributeValueResponse>? variantAttributes = null;
+                if (!string.IsNullOrWhiteSpace(v.VariantAttributeValueIds))
+                {
+                    var attrIds = v.VariantAttributeValueIds
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(s => s.Trim())
+                        .Where(s => Guid.TryParse(s, out _))
+                        .Select(Guid.Parse)
+                        .ToList();
+
+                    variantAttributes = attrIds
+                        .Where(variantAttributeMap.ContainsKey)
+                        .Select(id => variantAttributeMap[id])
+                        .ToList();
+                }
+
+                // CompareAtPrice: product CompareAtPrice (variants don't have separate compare-at price)
+                var compareAtPrice = v.ProductCompareAtPrice;
+
                 return new StorefrontVariantRowResponse(
                     v.Id, v.VariantId, v.ProductId, v.Slug, v.ProductName, v.Sku,
-                    effectivePrice, currency, v.PrimaryImageUrl,
+                    effectivePrice, compareAtPrice, currency, v.PrimaryImageUrl,
                     availability, v.IsActive && !isOut,
                     v.CategoryId, v.CategoryName, v.CategorySlug,
                     v.BrandId, v.BrandName, v.BrandSlug,
                     v.IsFeatured, v.RatingAverage, v.RatingCount,
+                    variantAttributes,
                     v.VariantImages);
             }).ToList();
 
@@ -304,13 +341,34 @@ internal sealed class GetStorefrontVariantGridHandler(
                     ? StockAvailability.OutOfStock
                     : (isLow ? StockAvailability.LowStock : StockAvailability.InStock);
 
+                // Resolve variant attributes
+                IReadOnlyList<VariantAttributeValueResponse>? variantAttributes = null;
+                if (!string.IsNullOrWhiteSpace(v.VariantAttributeValueIds))
+                {
+                    var attrIds = v.VariantAttributeValueIds
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(s => s.Trim())
+                        .Where(s => Guid.TryParse(s, out _))
+                        .Select(Guid.Parse)
+                        .ToList();
+
+                    variantAttributes = attrIds
+                        .Where(variantAttributeMap.ContainsKey)
+                        .Select(id => variantAttributeMap[id])
+                        .ToList();
+                }
+
+                // CompareAtPrice: product CompareAtPrice (variants don't have separate compare-at price)
+                var compareAtPrice = v.ProductCompareAtPrice;
+
                 return new StorefrontVariantRowResponse(
                     v.Id, v.VariantId, v.ProductId, v.Slug, v.ProductName, v.Sku,
-                    effectivePrice, currency, v.PrimaryImageUrl,
+                    effectivePrice, compareAtPrice, currency, v.PrimaryImageUrl,
                     availability, v.IsActive && !isOut,
                     v.CategoryId, v.CategoryName, v.CategorySlug,
                     v.BrandId, v.BrandName, v.BrandSlug,
                     v.IsFeatured, v.RatingAverage, v.RatingCount,
+                    variantAttributes,
                     v.VariantImages);
             }).ToList();
         }

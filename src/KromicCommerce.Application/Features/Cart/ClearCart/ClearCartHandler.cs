@@ -1,9 +1,19 @@
+using KromicCommerce.Application.Features.Cart.GetCart;
+using KromicCommerce.Contracts.Cart;
+using MediatR;
+
 namespace KromicCommerce.Application.Features.Cart.ClearCart;
 
-internal sealed class ClearCartHandler(IApplicationDbContext db)
-    : ICommandHandler<ClearCartCommand>
+/// <summary>
+/// Clears all items from the cart and returns the updated cart.
+/// </summary>
+internal sealed class ClearCartHandler(
+    IApplicationDbContext db,
+    IMediator mediator)
+    : ICommandHandler<ClearCartCommand, CartResponse>
 {
-    public async Task<Result> Handle(ClearCartCommand command, CancellationToken cancellationToken)
+    public async Task<Result<CartResponse>> Handle(
+        ClearCartCommand command, CancellationToken cancellationToken)
     {
         KromicCommerce.Domain.Cart.Cart? cart = null;
         if (command.CustomerId.HasValue)
@@ -13,9 +23,20 @@ internal sealed class ClearCartHandler(IApplicationDbContext db)
             cart = await db.Carts.Include(c => c.Items)
                 .FirstOrDefaultAsync(c => c.AnonymousId == command.AnonymousCartId, cancellationToken);
 
-        if (cart is null) return Result.Success();
+        if (cart is null)
+        {
+            // Idempotent: return empty cart response
+            var settings = await db.BusinessSettings.AsNoTracking().FirstOrDefaultAsync(cancellationToken);
+            var currency = settings?.CurrencyCode ?? "INR";
+            return Result.Success(new CartResponse(Guid.Empty, [], 0m, currency, 0, true, null));
+        }
+
         cart.Clear();
         await db.SaveChangesAsync(cancellationToken);
-        return Result.Success();
+
+        // Return updated cart
+        var cartResult = await mediator.Send(
+            new GetCartQuery(command.CustomerId, command.AnonymousCartId), cancellationToken);
+        return cartResult;
     }
 }

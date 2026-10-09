@@ -62,24 +62,25 @@ public sealed class CartController(IMediator mediator, ICurrentUserService curre
         return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
-    /// <summary>Removes a specific item from the cart (idempotent).</summary>
+    /// <summary>Removes a specific item from the cart (idempotent). Returns updated cart.</summary>
     [HttpDelete("items/{itemId:guid}")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(CartResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> RemoveItem(Guid itemId, CancellationToken ct)
     {
         var (customerId, anonId) = ResolveCartOwner();
-        await mediator.Send(new RemoveCartItemCommand(customerId, anonId, itemId), ct);
-        return NoContent();
+        var result = await mediator.Send(
+            new RemoveCartItemCommand(customerId, anonId, itemId), ct);
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
-    /// <summary>Clears all items from the cart (idempotent).</summary>
+    /// <summary>Clears all items from the cart (idempotent). Returns updated cart.</summary>
     [HttpDelete]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(CartResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> ClearCart(CancellationToken ct)
     {
         var (customerId, anonId) = ResolveCartOwner();
-        await mediator.Send(new ClearCartCommand(customerId, anonId), ct);
-        return NoContent();
+        var result = await mediator.Send(new ClearCartCommand(customerId, anonId), ct);
+        return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }
 
     /// <summary>

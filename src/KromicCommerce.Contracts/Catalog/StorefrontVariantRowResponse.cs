@@ -12,10 +12,14 @@ public sealed record StorefrontVariantRowResponse(
     Guid? VariantId,
 
     Guid ProductId,
-    string Slug,         // Product slug — link to PDP
-    string Name,         // Product name
+    string Slug,
+    string Name,
     string? Sku,
     decimal EffectivePrice,
+
+    /// <summary>Compare-at price for the variant (variant override) or product (fallback). Null when not set.</summary>
+    decimal? CompareAtPrice,
+
     string Currency,
 
     string? PrimaryImageUrl,
@@ -34,6 +38,12 @@ public sealed record StorefrontVariantRowResponse(
     bool IsFeatured,
     decimal RatingAverage,
     int RatingCount,
+
+    /// <summary>
+    /// Resolved variant attributes for display (e.g., Color: Red, Storage: 128GB).
+    /// Empty when the product has no variants or the variant has no attribute values.
+    /// </summary>
+    IReadOnlyList<VariantAttributeValueResponse>? VariantAttributes = null,
 
     /// <summary>
     /// Variant-level images ordered by SortOrder. Empty when none exist; the product-level
