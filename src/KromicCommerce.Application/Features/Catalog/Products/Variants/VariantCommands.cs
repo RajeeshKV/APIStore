@@ -4,6 +4,7 @@ public sealed record CreateVariantCommand(
     Guid ProductId,
     string? Sku,
     decimal? PriceOverride,
+    decimal? CompareAtPrice,
 
     /// <summary>
     /// Explicit display position. Null appends the variant after the current maximum, so the
@@ -23,6 +24,7 @@ public sealed record UpdateVariantCommand(
     Guid VariantId,
     string? Sku,
     decimal? PriceOverride,
+    decimal? CompareAtPrice,
     int SortOrder,
     bool IsActive,
     List<Guid>? AttributeValueIds) : ICommand<VariantResponse>;

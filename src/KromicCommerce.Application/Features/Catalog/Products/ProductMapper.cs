@@ -3,7 +3,7 @@ namespace KromicCommerce.Application.Features.Catalog.Products;
 /// <summary>Shared mapping helpers for product responses. Kept internal — never exposed to API layer.</summary>
 internal static class ProductMapper
 {
-    internal static ProductResponse MapToResponse(Product p) =>
+    internal static ProductResponse MapToResponse(Product p, InventoryResponse? baseInventory = null) =>
         new(p.Id, p.Name, p.Slug, p.Sku, p.Description, p.ShortDescription,
             p.Price, p.CompareAtPrice, p.Status,
             p.CategoryId, p.Category?.Name, p.BrandId, p.Brand?.Name,
@@ -24,7 +24,7 @@ internal static class ProductMapper
             // endpoints supply it.
             p.Variants.OrderBy(v => v.SortOrder).ThenBy(v => v.CreatedAtUtc)
                 .Select(v => new VariantResponse(
-                    v.Id, v.Sku, v.PriceOverride, v.SortOrder, v.IsActive, v.AttributeValueIds,
+                    v.Id, v.Sku, v.PriceOverride, v.CompareAtPrice, v.SortOrder, v.IsActive, v.AttributeValueIds,
                     null,
                     Attributes: null,
                     Images: v.Images.OrderBy(i => i.SortOrder)
@@ -32,6 +32,8 @@ internal static class ProductMapper
                             new MediaAssetDto(i.Asset.PublicId, i.Asset.SecureUrl, i.Asset.Format,
                                 i.Asset.Width, i.Asset.Height, i.Asset.AltText),
                             i.SortOrder, i.IsPrimary)).ToList())).ToList(),
+            // Base inventory only for products without variants
+            baseInventory,
             // Denormalised on the product row, so the admin detail view needs no aggregate query.
             p.RatingAverage, p.RatingCount,
             p.CreatedAtUtc, p.UpdatedAtUtc);

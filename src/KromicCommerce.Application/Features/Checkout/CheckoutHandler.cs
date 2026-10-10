@@ -261,31 +261,66 @@ internal sealed class CheckoutHandler(
 
         if (paymentMethod == PaymentMethod.Razorpay)
         {
-            var pgResult = await paymentGateway.CreateOrderAsync(
-                order.Id, grandTotal, currency, order.OrderNumber, cancellationToken);
-
-            if (!pgResult.Success)
+            // Zero-amount orders (free orders): skip Razorpay entirely, mark as paid
+            if (grandTotal <= 0)
             {
-                logger.LogError("Razorpay order creation failed for Order {OrderId}: {Error}",
-                    order.Id, pgResult.ErrorMessage);
-                payment.MarkFailed(pgResult.ErrorMessage);
-                order.MarkFailed();
-                ReleaseReservations(summary, inventoryItems);
+                payment.MarkPaid("free-order");
+                order.MarkPaymentReceived();
+                
+                var outboxPayload = JsonSerializer.Serialize(new
+                {
+                    order.Id, order.OrderNumber, command.CustomerId,
+                    order.GrandTotal, order.CurrencyCode, order.Subtotal,
+                    order.ShippingAmount, order.DiscountAmount, order.TaxAmount,
+                    order.CodFee, order.AppliedCouponCode,
+                    PaymentMethod = order.PaymentMethod.ToString(),
+                    ShippingAddress = new
+                    {
+                        order.ShippingAddress.FullName,
+                        order.ShippingAddress.AddressLine1,
+                        order.ShippingAddress.City,
+                        order.ShippingAddress.State,
+                        order.ShippingAddress.Country
+                    }
+                });
+                db.OutboxEvents.Add(OutboxEvent.Create("PaymentSucceeded", outboxPayload));
+                
+                if (summary.AppliedPromotionId.HasValue)
+                {
+                    await RecordPromotionUsageAsync(
+                        summary.AppliedPromotionId.Value, command.CustomerId, order.Id, cancellationToken);
+                }
+                
                 await db.SaveChangesAsync(cancellationToken);
-                await inventoryRestorer.InvalidateCachesAsync(
-                    reservedQuantities.Keys.Select(k => k.ProductId).Distinct().ToList(),
-                    cancellationToken);
-                return Result.Failure<CheckoutResponse>(
-                    Error.ServiceUnavailable("PAYMENT_INITIALIZATION_FAILED",
-                        "Online payment could not be initialized. Please try again later."));
             }
             else
             {
-                providerOrderId = pgResult.ProviderOrderId;
-                payment.SetProviderOrderId(providerOrderId!);
-                // Transition OrderPlaced → PendingPayment now that payment widget can be shown
-                order.MarkPendingPayment();
-                await db.SaveChangesAsync(cancellationToken);
+                var pgResult = await paymentGateway.CreateOrderAsync(
+                    order.Id, grandTotal, currency, order.OrderNumber, cancellationToken);
+
+                if (!pgResult.Success)
+                {
+                    logger.LogError("Razorpay order creation failed for Order {OrderId}: {Error}",
+                        order.Id, pgResult.ErrorMessage);
+                    payment.MarkFailed(pgResult.ErrorMessage);
+                    order.MarkFailed();
+                    ReleaseReservations(summary, inventoryItems);
+                    await db.SaveChangesAsync(cancellationToken);
+                    await inventoryRestorer.InvalidateCachesAsync(
+                        reservedQuantities.Keys.Select(k => k.ProductId).Distinct().ToList(),
+                        cancellationToken);
+                    return Result.Failure<CheckoutResponse>(
+                        Error.ServiceUnavailable("PAYMENT_INITIALIZATION_FAILED",
+                            "Online payment could not be initialized. Please try again later."));
+                }
+                else
+                {
+                    providerOrderId = pgResult.ProviderOrderId;
+                    payment.SetProviderOrderId(providerOrderId!);
+                    // Transition OrderPlaced → PendingPayment now that payment widget can be shown
+                    order.MarkPendingPayment();
+                    await db.SaveChangesAsync(cancellationToken);
+                }
             }
         }
 

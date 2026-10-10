@@ -181,7 +181,7 @@ public sealed class PaymentRefundSchemaTests(DatabaseFixture db)
     {
         await using var ctx = Db.CreateDbContext();
         var product = SeedProduct(ctx);
-        var variant = ProductVariant.Create(product.Id, $"SKU-BASE-{Guid.NewGuid():N}", null);
+        var variant = ProductVariant.Create(product.Id, $"SKU-BASE-{Guid.NewGuid():N}", null, compareAtPrice: null);
         ctx.ProductVariants.Add(variant);
         ctx.InventoryItems.Add(InventoryItem.Create(product.Id, null, onHand: 10));
         await ctx.SaveChangesAsync();

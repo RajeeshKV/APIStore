@@ -46,7 +46,7 @@ internal sealed class CreateVariantHandler(IApplicationDbContext db, ICatalogCac
         var sortOrder = cmd.SortOrder
             ?? await VariantAttributeHelper.NextSortOrderAsync(db, cmd.ProductId, ct);
 
-        var variant = ProductVariant.Create(cmd.ProductId, cmd.Sku, cmd.PriceOverride, sortOrder);
+        var variant = ProductVariant.Create(cmd.ProductId, cmd.Sku, cmd.PriceOverride, cmd.CompareAtPrice, sortOrder);
         if (cmd.AttributeValueIds?.Count > 0)
             variant.SetAttributeValues(VariantAttributeHelper.SortedIds(cmd.AttributeValueIds));
 
@@ -81,7 +81,7 @@ internal sealed class CreateVariantHandler(IApplicationDbContext db, ICatalogCac
         cache.InvalidateProductGraph(cmd.ProductId, product.Slug);
 
         return Result.Success(new VariantResponse(
-            variant.Id, variant.Sku, variant.PriceOverride,
+            variant.Id, variant.Sku, variant.PriceOverride, variant.CompareAtPrice,
             variant.SortOrder, variant.IsActive, variant.AttributeValueIds,
             AvailableStock: 0,
             Attributes: attributes));
@@ -117,7 +117,7 @@ internal sealed class UpdateVariantHandler(IApplicationDbContext db, ICatalogCac
                 return Result.Failure<VariantResponse>(dupCheck);
         }
 
-        variant.Update(cmd.Sku, cmd.PriceOverride, cmd.SortOrder);
+        variant.Update(cmd.Sku, cmd.PriceOverride, cmd.CompareAtPrice, cmd.SortOrder);
         if (cmd.AttributeValueIds?.Count > 0)
             variant.SetAttributeValues(VariantAttributeHelper.SortedIds(cmd.AttributeValueIds));
         if (cmd.IsActive) variant.Activate(); else variant.Deactivate();
@@ -137,7 +137,7 @@ internal sealed class UpdateVariantHandler(IApplicationDbContext db, ICatalogCac
             .FirstOrDefaultAsync(ct);
 
         return Result.Success(new VariantResponse(
-            variant.Id, variant.Sku, variant.PriceOverride,
+            variant.Id, variant.Sku, variant.PriceOverride, variant.CompareAtPrice,
             variant.SortOrder, variant.IsActive, variant.AttributeValueIds,
             AvailableStock: inventoryItem?.Available,
             Attributes: attributes));

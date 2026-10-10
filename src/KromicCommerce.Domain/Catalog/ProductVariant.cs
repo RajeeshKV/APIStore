@@ -14,16 +14,21 @@ public sealed class ProductVariant : AuditableEntity
         Guid productId,
         string? sku,
         decimal? priceOverride,
+        decimal? compareAtPrice = null,
         int sortOrder = 0)
     {
         if (priceOverride.HasValue && priceOverride.Value < 0)
             throw new ArgumentException("Variant price override must be >= 0.", nameof(priceOverride));
+
+        if (compareAtPrice.HasValue && compareAtPrice.Value < 0)
+            throw new ArgumentException("Variant compare-at price must be >= 0.", nameof(compareAtPrice));
 
         return new ProductVariant
         {
             ProductId = productId,
             Sku = sku?.Trim(),
             PriceOverride = priceOverride,
+            CompareAtPrice = compareAtPrice,
             SortOrder = sortOrder,
             IsActive = true
         };
@@ -36,6 +41,9 @@ public sealed class ProductVariant : AuditableEntity
 
     /// <summary>When null the product's base price applies.</summary>
     public decimal? PriceOverride { get; private set; }
+
+    /// <summary>Optional variant-level compare-at price. When null the product's compare-at price applies.</summary>
+    public decimal? CompareAtPrice { get; private set; }
 
     public int SortOrder { get; private set; }
     public bool IsActive { get; private set; }
@@ -78,13 +86,17 @@ public sealed class ProductVariant : AuditableEntity
     // Behaviour
     // -----------------------------------------------------------------------
 
-    public void Update(string? sku, decimal? priceOverride, int sortOrder)
+    public void Update(string? sku, decimal? priceOverride, decimal? compareAtPrice = null, int sortOrder = 0)
     {
         if (priceOverride.HasValue && priceOverride.Value < 0)
             throw new ArgumentException("Variant price override must be >= 0.", nameof(priceOverride));
 
+        if (compareAtPrice.HasValue && compareAtPrice.Value < 0)
+            throw new ArgumentException("Variant compare-at price must be >= 0.", nameof(compareAtPrice));
+
         Sku = sku?.Trim();
         PriceOverride = priceOverride;
+        CompareAtPrice = compareAtPrice;
         SortOrder = sortOrder;
     }
 

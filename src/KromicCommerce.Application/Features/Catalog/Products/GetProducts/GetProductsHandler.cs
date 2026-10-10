@@ -155,9 +155,26 @@ internal sealed class GetProductBySlugHandler(IApplicationDbContext db)
                 x => x.Slug == query.Slug && x.Status == ProductStatus.Active,
                 cancellationToken);
 
-        return p is null
-            ? Result.Failure<ProductResponse>(Error.NotFound("PRODUCT_NOT_FOUND", "Product not found."))
-            : Result.Success(ProductMapper.MapToResponse(p));
+        if (p is null)
+            return Result.Failure<ProductResponse>(Error.NotFound("PRODUCT_NOT_FOUND", "Product not found."));
+
+        // Load base inventory (for products without variants)
+        InventoryResponse? baseInventory = null;
+        if (!p.Variants.Any())
+        {
+            var inv = await db.InventoryItems
+                .AsNoTracking()
+                .FirstOrDefaultAsync(i => i.ProductId == p.Id && i.VariantId == null, cancellationToken);
+            
+            if (inv is not null)
+            {
+                baseInventory = new InventoryResponse(
+                    inv.Id, inv.ProductId, inv.VariantId, inv.OnHand, inv.Reserved,
+                    inv.Available, inv.LowStockThreshold, inv.IsLowStock, inv.IsOutOfStock, inv.UpdatedAt);
+            }
+        }
+
+        return Result.Success(ProductMapper.MapToResponse(p, baseInventory));
     }
 }
 
@@ -173,8 +190,25 @@ internal sealed class GetProductByIdHandler(IApplicationDbContext db)
             .Include(x => x.Variants).ThenInclude(v => v.Images)
             .FirstOrDefaultAsync(x => x.Id == query.Id, cancellationToken);
 
-        return p is null
-            ? Result.Failure<ProductResponse>(Error.NotFound("PRODUCT_NOT_FOUND", "Product not found."))
-            : Result.Success(ProductMapper.MapToResponse(p));
+        if (p is null)
+            return Result.Failure<ProductResponse>(Error.NotFound("PRODUCT_NOT_FOUND", "Product not found."));
+
+        // Load base inventory (for products without variants)
+        InventoryResponse? baseInventory = null;
+        if (!p.Variants.Any())
+        {
+            var inv = await db.InventoryItems
+                .AsNoTracking()
+                .FirstOrDefaultAsync(i => i.ProductId == p.Id && i.VariantId == null, cancellationToken);
+            
+            if (inv is not null)
+            {
+                baseInventory = new InventoryResponse(
+                    inv.Id, inv.ProductId, inv.VariantId, inv.OnHand, inv.Reserved,
+                    inv.Available, inv.LowStockThreshold, inv.IsLowStock, inv.IsOutOfStock, inv.UpdatedAt);
+            }
+        }
+
+        return Result.Success(ProductMapper.MapToResponse(p, baseInventory));
     }
 }

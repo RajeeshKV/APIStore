@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
 namespace KromicCommerce.Application.Features.Checkout;
@@ -55,7 +56,11 @@ internal sealed class HandlePaymentWebhookHandler(
         // The unique index on WebhookEvents(Provider, ProviderEventId) is the definitive
         // idempotency guard. A concurrent duplicate that passes the AnyAsync check above
         // will be caught by a DbUpdateException (unique constraint) from the transaction.
-        try
+        //
+        // Use execution strategy to support Npgsql's retrying execution strategy.
+        var strategy = db.Database.CreateExecutionStrategy();
+
+        return await strategy.ExecuteAsync(async (cancellationToken) =>
         {
             await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
 
@@ -126,15 +131,7 @@ internal sealed class HandlePaymentWebhookHandler(
                 command.Provider, verified.EventType, order.Id);
 
             return Result.Success();
-        }
-        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
-        {
-            // Concurrent duplicate webhook hit the unique index — treat as already processed
-            logger.LogInformation(
-                "Duplicate webhook caught by unique constraint. Provider: {Provider} EventId: {EventId}",
-                command.Provider, verified.ProviderEventId);
-            return Result.Success();
-        }
+        }, cancellationToken);
     }
 
     private void AddWebhookEvent(HandlePaymentWebhookCommand cmd, WebhookVerificationResult verified)

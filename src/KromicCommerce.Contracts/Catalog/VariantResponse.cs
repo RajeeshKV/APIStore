@@ -9,6 +9,7 @@ public sealed record VariantResponse(
     Guid Id,
     string? Sku,
     decimal? PriceOverride,
+    decimal? CompareAtPrice,
     int SortOrder,
     bool IsActive,
     string? AttributeValueIds,

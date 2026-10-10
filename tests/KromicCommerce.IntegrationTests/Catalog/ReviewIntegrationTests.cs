@@ -496,7 +496,7 @@ public sealed class ReviewIntegrationTests(DatabaseFixture db) : IntegrationTest
     private async Task<Guid> SeedVariantAsync(Guid productId)
     {
         await using var ctx = Db.CreateDbContext();
-        var variant = ProductVariant.Create(productId, $"sku-{Guid.NewGuid():N}"[..12], null);
+        var variant = ProductVariant.Create(productId, $"sku-{Guid.NewGuid():N}"[..12], null, compareAtPrice: null);
         ctx.ProductVariants.Add(variant);
         await ctx.SaveChangesAsync();
         return variant.Id;

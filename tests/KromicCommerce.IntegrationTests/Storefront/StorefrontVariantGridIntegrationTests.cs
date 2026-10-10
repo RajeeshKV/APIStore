@@ -319,10 +319,10 @@ public sealed class StorefrontVariantGridIntegrationTests(DatabaseFixture db) : 
         return av.Id;
     }
 
-    private async Task<Guid> SeedVariantAsync(Guid productId, Guid[] attributeValueIds, string? sku = null, decimal? priceOverride = null, bool isActive = true)
+    private async Task<Guid> SeedVariantAsync(Guid productId, Guid[] attributeValueIds, string? sku = null, decimal? priceOverride = null, decimal? compareAtPrice = null, bool isActive = true)
     {
         await using var ctx = Db.CreateDbContext();
-        var variant = ProductVariant.Create(productId, sku, priceOverride);
+        var variant = ProductVariant.Create(productId, sku, priceOverride, compareAtPrice);
         variant.SetAttributeValues(attributeValueIds);
         if (!isActive) variant.Deactivate();
         ctx.ProductVariants.Add(variant);

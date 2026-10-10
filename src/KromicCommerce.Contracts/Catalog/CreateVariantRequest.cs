@@ -11,6 +11,7 @@ namespace KromicCommerce.Contracts.Catalog;
 public sealed record CreateVariantRequest(
     string? Sku,
     decimal? PriceOverride,
+    decimal? CompareAtPrice,
 
     /// <summary>
     /// Optional display position. Omit or leave null to have the backend append the variant

@@ -208,6 +208,18 @@ internal sealed class GetStorefrontVariantGridHandler(
         var productsWithVariants = await variantBase.Select(v => v.ProductId).Distinct().ToListAsync(cancellationToken);
         var productsWithoutVariants = matchingProductIds.Except(productsWithVariants).ToList();
 
+        // Apply InStockOnly filter to fallback products too
+        if (req.InStockOnly)
+        {
+            var productIdsWithStock = await db.InventoryItems
+                .Where(i => productsWithoutVariants.Contains(i.ProductId) && i.VariantId == null
+                    && (i.OnHand - i.Reserved) > 0)
+                .Select(i => i.ProductId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+            productsWithoutVariants = productsWithoutVariants.Intersect(productIdsWithStock).ToList();
+        }
+
         List<StorefrontVariantRowResponse> items;
 
         if (productsWithoutVariants.Count > 0)

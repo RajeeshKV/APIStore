@@ -165,7 +165,7 @@ public sealed class ProductsController(IMediator mediator) : ControllerBase
         CancellationToken ct)
     {
         var result = await mediator.Send(
-            new CreateVariantCommand(productId, req.Sku, req.PriceOverride,
+            new CreateVariantCommand(productId, req.Sku, req.PriceOverride, req.CompareAtPrice,
                 req.SortOrder, req.AttributeValueIds), ct);
 
         if (!result.IsSuccess) return result.Error.ToActionResult();
@@ -191,7 +191,7 @@ public sealed class ProductsController(IMediator mediator) : ControllerBase
         CancellationToken ct)
     {
         var result = await mediator.Send(
-            new UpdateVariantCommand(productId, variantId, req.Sku, req.PriceOverride,
+            new UpdateVariantCommand(productId, variantId, req.Sku, req.PriceOverride, req.CompareAtPrice,
                 req.SortOrder, req.IsActive, req.AttributeValueIds), ct);
         return result.IsSuccess ? Ok(result.Value) : result.Error.ToActionResult();
     }

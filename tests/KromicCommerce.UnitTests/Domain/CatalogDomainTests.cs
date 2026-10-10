@@ -148,7 +148,7 @@ public sealed class CatalogDomainTests
     {
         var productId = Guid.NewGuid();
         var p = Product.Create("X", "x", null, 200m, null, null);
-        var variant = ProductVariant.Create(productId, null, null); // no override
+        var variant = ProductVariant.Create(productId, null, null, compareAtPrice: null);
         p.GetEffectivePrice(variant).Should().Be(200m);
     }
 
@@ -157,7 +157,7 @@ public sealed class CatalogDomainTests
     {
         var productId = Guid.NewGuid();
         var p = Product.Create("X", "x", null, 200m, null, null);
-        var variant = ProductVariant.Create(productId, null, 150m);
+        var variant = ProductVariant.Create(productId, null, 150m, compareAtPrice: null);
         p.GetEffectivePrice(variant).Should().Be(150m);
     }
 
@@ -166,7 +166,7 @@ public sealed class CatalogDomainTests
     {
         var productId = Guid.NewGuid();
         var p = Product.Create("X", "x", null, 200m, null, null);
-        var variant = ProductVariant.Create(productId, null, 0m);
+        var variant = ProductVariant.Create(productId, null, 0m, compareAtPrice: null);
         p.GetEffectivePrice(variant).Should().Be(0m);
     }
 
@@ -182,9 +182,9 @@ public sealed class CatalogDomainTests
     {
         var productId = Guid.NewGuid();
         var p = Product.Create("X", "x", null, 100m, null, null);
-        var v1 = ProductVariant.Create(productId, "SKU-A", 80m);
-        var v2 = ProductVariant.Create(productId, "SKU-B", 120m);
-        var v3 = ProductVariant.Create(productId, "SKU-C", null); // inherits product price
+        var v1 = ProductVariant.Create(productId, "SKU-A", 80m, compareAtPrice: null);
+        var v2 = ProductVariant.Create(productId, "SKU-B", 120m, compareAtPrice: null);
+        var v3 = ProductVariant.Create(productId, "SKU-C", null, compareAtPrice: null);
 
         p.GetEffectivePrice(v1).Should().Be(80m);
         p.GetEffectivePrice(v2).Should().Be(120m);
@@ -198,7 +198,7 @@ public sealed class CatalogDomainTests
     [Fact]
     public void Variant_Create_accepts_zero_price_override()
     {
-        var v = ProductVariant.Create(Guid.NewGuid(), null, 0m);
+        var v = ProductVariant.Create(Guid.NewGuid(), null, 0m, compareAtPrice: null);
         v.PriceOverride.Should().Be(0m);
     }
 
@@ -207,15 +207,15 @@ public sealed class CatalogDomainTests
     [InlineData(-1)]
     public void Variant_Create_throws_for_negative_price_override(decimal price)
     {
-        var act = () => ProductVariant.Create(Guid.NewGuid(), null, price);
+        var act = () => ProductVariant.Create(Guid.NewGuid(), null, price, compareAtPrice: null);
         act.Should().Throw<ArgumentException>().WithMessage("*>= 0*");
     }
 
     [Fact]
     public void Variant_Update_accepts_zero_price_override()
     {
-        var v = ProductVariant.Create(Guid.NewGuid(), null, 100m);
-        v.Update(null, 0m, 0);
+        var v = ProductVariant.Create(Guid.NewGuid(), null, 100m, compareAtPrice: null);
+        v.Update(null, 0m, compareAtPrice: null, sortOrder: 0);
         v.PriceOverride.Should().Be(0m);
     }
 

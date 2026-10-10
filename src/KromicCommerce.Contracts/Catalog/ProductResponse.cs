@@ -27,6 +27,12 @@ public sealed record ProductResponse(
     IReadOnlyList<VariantResponse> Variants,
 
     /// <summary>
+    /// Base product inventory (for products without variants). Null when product has variants
+    /// (inventory lives on variants) or no inventory record exists.
+    /// </summary>
+    InventoryResponse? BaseInventory,
+
+    /// <summary>
     /// Mean rating across published reviews, to 2 decimal places. Read alongside
     /// <see cref="RatingCount"/>: zero with a zero count means unrated, not rated zero.
     /// </summary>

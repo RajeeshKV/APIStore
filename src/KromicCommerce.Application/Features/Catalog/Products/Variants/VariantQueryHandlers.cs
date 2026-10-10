@@ -54,7 +54,7 @@ internal sealed class GetVariantsHandler(IApplicationDbContext db)
                 : [];
 
             return new VariantResponse(
-                v.Id, v.Sku, v.PriceOverride, v.SortOrder, v.IsActive, v.AttributeValueIds,
+                v.Id, v.Sku, v.PriceOverride, v.CompareAtPrice, v.SortOrder, v.IsActive, v.AttributeValueIds,
                 inventoryMap.TryGetValue(v.Id, out var stock) ? stock : null,
                 Attributes: v.ParsedAttributeValueIds
                     .Where(attributeMap.ContainsKey)
@@ -97,7 +97,7 @@ internal sealed class GetVariantByIdHandler(IApplicationDbContext db)
                 i.SortOrder, i.IsPrimary)).ToList();
 
         return Result.Success(new VariantResponse(
-            variant.Id, variant.Sku, variant.PriceOverride, variant.SortOrder,
+            variant.Id, variant.Sku, variant.PriceOverride, variant.CompareAtPrice, variant.SortOrder,
             variant.IsActive, variant.AttributeValueIds, inventoryItem?.Available, attributes,
             Images: images));
     }

@@ -11,10 +11,11 @@ public sealed class ProductVariantDomainTests
     [Fact]
     public void Create_sets_all_fields_correctly()
     {
-        var v = ProductVariant.Create(ProductId, "SKU-001", 99.99m, sortOrder: 1);
+        var v = ProductVariant.Create(ProductId, "SKU-001", 99.99m, compareAtPrice: 149.99m, sortOrder: 1);
         v.ProductId.Should().Be(ProductId);
         v.Sku.Should().Be("SKU-001");
         v.PriceOverride.Should().Be(99.99m);
+        v.CompareAtPrice.Should().Be(149.99m);
         v.SortOrder.Should().Be(1);
         v.IsActive.Should().BeTrue();
         v.AttributeValueIds.Should().BeNull();
@@ -23,28 +24,28 @@ public sealed class ProductVariantDomainTests
     [Fact]
     public void Create_trims_sku()
     {
-        var v = ProductVariant.Create(ProductId, "  SKU-001  ", null, 0);
+        var v = ProductVariant.Create(ProductId, "  SKU-001  ", null, compareAtPrice: null, sortOrder: 0);
         v.Sku.Should().Be("SKU-001");
     }
 
     [Fact]
     public void Create_allows_null_sku()
     {
-        var v = ProductVariant.Create(ProductId, null, null, 0);
+        var v = ProductVariant.Create(ProductId, null, null, compareAtPrice: null, sortOrder: 0);
         v.Sku.Should().BeNull();
     }
 
     [Fact]
     public void Create_allows_zero_price_override()
     {
-        var v = ProductVariant.Create(ProductId, null, 0m, 0);
+        var v = ProductVariant.Create(ProductId, null, 0m, compareAtPrice: null, sortOrder: 0);
         v.PriceOverride.Should().Be(0m);
     }
 
     [Fact]
     public void Create_throws_for_negative_price_override()
     {
-        var act = () => ProductVariant.Create(ProductId, null, -1m, 0);
+        var act = () => ProductVariant.Create(ProductId, null, -1m, compareAtPrice: null, sortOrder: 0);
         act.Should().Throw<ArgumentException>().WithMessage("*>= 0*");
     }
 
@@ -55,19 +56,28 @@ public sealed class ProductVariantDomainTests
     [Fact]
     public void Update_replaces_fields()
     {
-        var v = ProductVariant.Create(ProductId, "OLD", 10m, 0);
-        v.Update("NEW", 20m, 5);
+        var v = ProductVariant.Create(ProductId, "OLD", 10m, compareAtPrice: null, sortOrder: 0);
+        v.Update("NEW", 20m, compareAtPrice: 29.99m, sortOrder: 5);
         v.Sku.Should().Be("NEW");
         v.PriceOverride.Should().Be(20m);
+        v.CompareAtPrice.Should().Be(29.99m);
         v.SortOrder.Should().Be(5);
     }
 
     [Fact]
     public void Update_throws_for_negative_price()
     {
-        var v = ProductVariant.Create(ProductId, null, null, 0);
-        var act = () => v.Update(null, -0.01m, 0);
+        var v = ProductVariant.Create(ProductId, null, null, compareAtPrice: null, sortOrder: 0);
+        var act = () => v.Update(null, -0.01m, compareAtPrice: null, sortOrder: 0);
         act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void Update_throws_for_negative_compare_at_price()
+    {
+        var v = ProductVariant.Create(ProductId, null, null, compareAtPrice: null, sortOrder: 0);
+        var act = () => v.Update(null, 10m, compareAtPrice: -0.01m, sortOrder: 0);
+        act.Should().Throw<ArgumentException>().WithMessage("*>= 0*");
     }
 
     // -----------------------------------------------------------------------
