@@ -265,7 +265,9 @@ internal sealed class CheckoutHandler(
             if (grandTotal <= 0)
             {
                 payment.MarkPaid("free-order");
-                order.MarkPaymentReceived();
+                // Order is already created in OrderPlaced state. MarkPaymentReceived()
+                // tries to transition TO OrderPlaced, which fails. Just record payment time.
+                order.RecordPayment();
                 
                 var outboxPayload = JsonSerializer.Serialize(new
                 {
